@@ -41,6 +41,7 @@ type DQLExecuteOptions struct {
 	EnablePreview                bool    // Request preview results
 	EnforceQueryConsumptionLimit bool    // Enforce query consumption limit
 	IncludeTypes                 bool    // Include type information in results (default: true)
+	IncludeContributions         bool    // Include bucket contribution information in results
 
 	// Timeframe options
 	DefaultTimeframeStart string // Query timeframe start timestamp (ISO-8601/RFC3339)
@@ -69,7 +70,8 @@ type DQLQueryRequest struct {
 	FetchTimeoutSeconds          int32   `json:"fetchTimeoutSeconds,omitempty"`
 	EnablePreview                bool    `json:"enablePreview,omitempty"`
 	EnforceQueryConsumptionLimit bool    `json:"enforceQueryConsumptionLimit,omitempty"`
-	IncludeTypes                 *bool   `json:"includeTypes,omitempty"` // Pointer to distinguish between unset and false
+	IncludeTypes                 *bool   `json:"includeTypes,omitempty"`         // Pointer to distinguish between unset and false
+	IncludeContributions         *bool   `json:"includeContributions,omitempty"` // Pointer to distinguish between unset and false
 	DefaultTimeframeStart        string  `json:"defaultTimeframeStart,omitempty"`
 	DefaultTimeframeEnd          string  `json:"defaultTimeframeEnd,omitempty"`
 	Locale                       string  `json:"locale,omitempty"`
@@ -217,6 +219,10 @@ func (e *DQLExecutor) ExecuteQueryWithOptions(query string, opts DQLExecuteOptio
 	if opts.IncludeTypes {
 		includeTypes := true
 		req.IncludeTypes = &includeTypes
+	}
+	if opts.IncludeContributions {
+		includeContributions := true
+		req.IncludeContributions = &includeContributions
 	}
 
 	// Set timeframe parameters

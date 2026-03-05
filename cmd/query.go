@@ -180,6 +180,7 @@ Examples:
 		enablePreview, _ := cmd.Flags().GetBool("enable-preview")
 		enforceQueryConsumptionLimit, _ := cmd.Flags().GetBool("enforce-query-consumption-limit")
 		includeTypes, _ := cmd.Flags().GetBool("include-types")
+		includeContributions, _ := cmd.Flags().GetBool("include-contributions")
 
 		// Get timeframe options
 		defaultTimeframeStart, _ := cmd.Flags().GetString("default-timeframe-start")
@@ -202,6 +203,7 @@ Examples:
 			EnablePreview:                enablePreview,
 			EnforceQueryConsumptionLimit: enforceQueryConsumptionLimit,
 			IncludeTypes:                 includeTypes,
+			IncludeContributions:         includeContributions,
 			DefaultTimeframeStart:        defaultTimeframeStart,
 			DefaultTimeframeEnd:          defaultTimeframeEnd,
 			Locale:                       locale,
@@ -273,6 +275,7 @@ func init() {
 	queryCmd.Flags().Bool("enable-preview", false, "request preview results if available within timeout")
 	queryCmd.Flags().Bool("enforce-query-consumption-limit", false, "enforce query consumption limit")
 	queryCmd.Flags().Bool("include-types", false, "include type information in query results")
+	queryCmd.Flags().Bool("include-contributions", false, "include bucket contribution information in query results")
 
 	// Timeframe flags
 	queryCmd.Flags().String("default-timeframe-start", "", "query timeframe start timestamp (ISO-8601/RFC3339, e.g., '2022-04-20T12:10:04.123Z')")

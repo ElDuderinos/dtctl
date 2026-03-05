@@ -2,6 +2,7 @@ package exec
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -655,6 +656,7 @@ func TestDQLExecutor_ExecuteQueryWithOptions_AllParameters(t *testing.T) {
 		EnablePreview:                true,
 		EnforceQueryConsumptionLimit: true,
 		IncludeTypes:                 true,
+		IncludeContributions:         true,
 		DefaultTimeframeStart:        "2022-04-20T12:10:04.123Z",
 		DefaultTimeframeEnd:          "2022-04-20T13:10:04.123Z",
 		Locale:                       "en_US",
@@ -691,6 +693,9 @@ func TestDQLExecutor_ExecuteQueryWithOptions_AllParameters(t *testing.T) {
 	if receivedRequest.IncludeTypes == nil || *receivedRequest.IncludeTypes != true {
 		t.Errorf("expected IncludeTypes to be true, got %v", receivedRequest.IncludeTypes)
 	}
+	if receivedRequest.IncludeContributions == nil || *receivedRequest.IncludeContributions != true {
+		t.Errorf("expected IncludeContributions to be true, got %v", receivedRequest.IncludeContributions)
+	}
 	if receivedRequest.DefaultTimeframeStart != "2022-04-20T12:10:04.123Z" {
 		t.Errorf("expected DefaultTimeframeStart to be '2022-04-20T12:10:04.123Z', got %s", receivedRequest.DefaultTimeframeStart)
 	}
@@ -702,6 +707,97 @@ func TestDQLExecutor_ExecuteQueryWithOptions_AllParameters(t *testing.T) {
 	}
 	if receivedRequest.Timezone != "Europe/Paris" {
 		t.Errorf("expected Timezone to be 'Europe/Paris', got %s", receivedRequest.Timezone)
+	}
+}
+
+func TestDQLExecutor_ExecuteQueryWithOptions_IncludeContributions_OmittedWhenFalse(t *testing.T) {
+	// When IncludeContributions is false (default), the field should be omitted
+	// from the JSON request body (nil pointer + omitempty), not sent as false.
+	var receivedBody []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		receivedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("failed to read request body: %v", err)
+		}
+
+		response := DQLQueryResponse{
+			State: "SUCCEEDED",
+			Result: &DQLResult{
+				Records: []map[string]interface{}{
+					{"test": "value"},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	c, err := client.New(server.URL, "test-token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	executor := NewDQLExecutor(c)
+
+	// Execute with default options (IncludeContributions = false)
+	opts := DQLExecuteOptions{}
+	_, err = executor.ExecuteQueryWithOptions("fetch logs", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	bodyStr := string(receivedBody)
+	if strings.Contains(bodyStr, "includeContributions") {
+		t.Errorf("expected includeContributions to be omitted from request body when false, but found it in: %s", bodyStr)
+	}
+	if strings.Contains(bodyStr, "includeTypes") {
+		t.Errorf("expected includeTypes to be omitted from request body when false, but found it in: %s", bodyStr)
+	}
+}
+
+func TestDQLExecutor_ExecuteQueryWithOptions_IncludeContributions_SentWhenTrue(t *testing.T) {
+	// When IncludeContributions is true, the field should be sent as true in the request body.
+	var receivedRequest DQLQueryRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+
+		response := DQLQueryResponse{
+			State: "SUCCEEDED",
+			Result: &DQLResult{
+				Records: []map[string]interface{}{
+					{"test": "value"},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	c, err := client.New(server.URL, "test-token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	executor := NewDQLExecutor(c)
+
+	opts := DQLExecuteOptions{
+		IncludeContributions: true,
+	}
+	_, err = executor.ExecuteQueryWithOptions("fetch logs", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if receivedRequest.IncludeContributions == nil {
+		t.Fatal("expected IncludeContributions to be set, got nil")
+	}
+	if *receivedRequest.IncludeContributions != true {
+		t.Errorf("expected IncludeContributions to be true, got %v", *receivedRequest.IncludeContributions)
 	}
 }
 
