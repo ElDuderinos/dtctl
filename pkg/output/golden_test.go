@@ -8,6 +8,12 @@ import (
 	"regexp"
 	"testing"
 	"time"
+
+	"github.com/dynatrace-oss/dtctl/pkg/resources/bucket"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/document"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/settings"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/slo"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/workflow"
 )
 
 // -update flag: regenerate golden files
@@ -48,111 +54,246 @@ func assertGolden(t *testing.T, name string, actual string) {
 }
 
 // ---------------------------------------------------------------------------
-// Test structs mirroring real resource types (with table tags)
-// ---------------------------------------------------------------------------
-
-type testWorkflow struct {
-	ID          string `json:"id" table:"ID"`
-	Title       string `json:"title" table:"TITLE"`
-	Owner       string `json:"owner,omitempty" table:"-"`
-	Description string `json:"description,omitempty" table:"DESCRIPTION,wide"`
-	IsDeployed  bool   `json:"isDeployed" table:"DEPLOYED"`
-}
-
-type testSLO struct {
-	ID          string `json:"id" table:"ID"`
-	Name        string `json:"name" table:"NAME"`
-	Description string `json:"description,omitempty" table:"DESCRIPTION,wide"`
-}
-
-type testBucket struct {
-	BucketName    string `json:"bucketName" table:"NAME"`
-	Table         string `json:"table" table:"TABLE"`
-	DisplayName   string `json:"displayName" table:"DISPLAY_NAME"`
-	Status        string `json:"status" table:"STATUS"`
-	RetentionDays int    `json:"retentionDays" table:"RETENTION_DAYS"`
-	Updatable     bool   `json:"updatable" table:"UPDATABLE,wide"`
-}
-
-type testDocument struct {
-	ID        string    `json:"id" table:"ID"`
-	Name      string    `json:"name" table:"NAME"`
-	Type      string    `json:"type" table:"TYPE"`
-	Owner     string    `json:"owner" table:"OWNER"`
-	IsPrivate bool      `json:"isPrivate" table:"PRIVATE"`
-	Created   time.Time `json:"-" table:"CREATED"`
-	Version   int       `json:"version" table:"VERSION,wide"`
-}
-
-type testSettingsObject struct {
-	SchemaID      string `json:"schemaId" table:"SCHEMA_ID"`
-	Summary       string `json:"summary,omitempty" table:"SUMMARY"`
-	ObjectIDShort string `json:"-" table:"OBJECT_ID_SHORT"`
-	ObjectID      string `json:"objectId" table:"OBJECT_ID,wide"`
-	Scope         string `json:"scope" table:"SCOPE,wide"`
-}
-
-type testExecution struct {
-	ID          string    `json:"id" table:"ID"`
-	Workflow    string    `json:"workflow" table:"WORKFLOW"`
-	Title       string    `json:"title" table:"TITLE"`
-	State       string    `json:"state" table:"STATE"`
-	StartedAt   time.Time `json:"startedAt" table:"STARTED"`
-	Runtime     int       `json:"runtime,omitempty" table:"RUNTIME"`
-	TriggerType string    `json:"triggerType,omitempty" table:"TRIGGER"`
-}
-
-// ---------------------------------------------------------------------------
-// Test fixtures
+// Test fixtures using REAL production structs with realistic synthetic data.
+//
+// All data is fictional — no real customer names, environment IDs, or tokens.
+// IDs use realistic formats (UUIDs, base64-encoded settings object IDs).
 // ---------------------------------------------------------------------------
 
 var fixedTime = time.Date(2025, 3, 15, 10, 30, 0, 0, time.UTC)
 
-func workflowFixtures() []testWorkflow {
-	return []testWorkflow{
-		{ID: "wf-abc123", Title: "Deploy to Production", Owner: "admin", Description: "Deploys latest build to prod", IsDeployed: true},
-		{ID: "wf-def456", Title: "Daily Cleanup", Owner: "system", Description: "Removes stale resources", IsDeployed: true},
-		{ID: "wf-ghi789", Title: "Incident Response", Owner: "oncall", Description: "", IsDeployed: false},
+func workflowFixtures() []workflow.Workflow {
+	return []workflow.Workflow{
+		{
+			ID:          "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+			Title:       "Deploy to Production",
+			Owner:       "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+			OwnerType:   "USER",
+			Description: "Deploys latest build to prod environment",
+			Private:     false,
+			IsDeployed:  true,
+			Tasks: map[string]interface{}{
+				"deploy": map[string]interface{}{
+					"action": "dynatrace.automations:run-javascript",
+					"input":  map[string]interface{}{"script": "// deploy logic"},
+				},
+			},
+			Trigger: map[string]interface{}{
+				"schedule": map[string]interface{}{
+					"trigger": map[string]interface{}{"type": "cron", "cron": "0 9 * * 1-5"},
+				},
+			},
+		},
+		{
+			ID:          "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+			Title:       "Daily Cleanup",
+			Owner:       "00000000-0000-0000-0000-000000000000",
+			OwnerType:   "USER",
+			Description: "Removes stale resources older than 30 days",
+			Private:     false,
+			IsDeployed:  true,
+		},
+		{
+			ID:          "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+			Title:       "Incident Response",
+			Owner:       "8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e",
+			OwnerType:   "USER",
+			Description: "",
+			Private:     true,
+			IsDeployed:  false,
+		},
 	}
 }
 
-func sloFixtures() []testSLO {
-	return []testSLO{
-		{ID: "slo-001", Name: "API Availability", Description: "99.9% availability for API endpoints"},
-		{ID: "slo-002", Name: "Checkout Latency", Description: "P95 latency < 500ms"},
-		{ID: "slo-003", Name: "Error Rate", Description: "Error rate below 0.1%"},
+func sloFixtures() []slo.SLO {
+	return []slo.SLO{
+		{
+			ID:          "a1b2c3d4-0001-4000-8000-000000000001",
+			Name:        "API Availability",
+			Description: "99.9% availability for public API endpoints",
+			Version:     "3",
+			Criteria: []slo.Criteria{
+				{TimeframeFrom: "-7d", Target: 99.9, Warning: float64Ptr(99.5)},
+			},
+			Tags: []string{"service:api", "tier:1"},
+		},
+		{
+			ID:          "a1b2c3d4-0002-4000-8000-000000000002",
+			Name:        "Checkout Latency",
+			Description: "P95 response time under 500ms for checkout flow",
+			Version:     "1",
+			Criteria: []slo.Criteria{
+				{TimeframeFrom: "-30d", Target: 95.0},
+			},
+			Tags: []string{"service:checkout"},
+		},
+		{
+			ID:          "a1b2c3d4-0003-4000-8000-000000000003",
+			Name:        "Error Rate",
+			Description: "Error rate below 0.1% across all services",
+			Version:     "5",
+		},
 	}
 }
 
-func bucketFixtures() []testBucket {
-	return []testBucket{
-		{BucketName: "default", Table: "logs", DisplayName: "Default Logs", Status: "active", RetentionDays: 35, Updatable: true},
-		{BucketName: "custom-metrics", Table: "metrics", DisplayName: "Custom Metrics", Status: "active", RetentionDays: 90, Updatable: true},
-		{BucketName: "security-events", Table: "logs", DisplayName: "Security Events", Status: "active", RetentionDays: 365, Updatable: false},
+func float64Ptr(v float64) *float64 { return &v }
+func int64Ptr(v int64) *int64       { return &v }
+
+func bucketFixtures() []bucket.Bucket {
+	return []bucket.Bucket{
+		{
+			BucketName:    "default_logs",
+			Table:         "logs",
+			DisplayName:   "Default Logs",
+			Status:        "active",
+			RetentionDays: 35,
+			Updatable:     true,
+			Version:       1,
+			Records:       int64Ptr(1250000),
+		},
+		{
+			BucketName:             "custom_metrics",
+			Table:                  "metrics",
+			DisplayName:            "Custom Metrics",
+			Status:                 "active",
+			RetentionDays:          90,
+			IncludedQueryLimitDays: 30,
+			MetricInterval:         "PT1M",
+			Updatable:              true,
+			Version:                3,
+			Records:                int64Ptr(8750000),
+		},
+		{
+			BucketName:    "security_events",
+			Table:         "logs",
+			DisplayName:   "Security Events",
+			Status:        "active",
+			RetentionDays: 365,
+			Updatable:     false,
+			Version:       2,
+			Records:       int64Ptr(42000),
+		},
 	}
 }
 
-func documentFixtures() []testDocument {
-	return []testDocument{
-		{ID: "doc-aaa111", Name: "Production Overview", Type: "dashboard", Owner: "admin", IsPrivate: false, Created: fixedTime, Version: 3},
-		{ID: "doc-bbb222", Name: "Runbook: Incident Response", Type: "notebook", Owner: "oncall", IsPrivate: true, Created: fixedTime.Add(-24 * time.Hour), Version: 1},
-		{ID: "doc-ccc333", Name: "Performance Dashboard", Type: "dashboard", Owner: "platform", IsPrivate: false, Created: fixedTime.Add(-72 * time.Hour), Version: 7},
+func documentFixtures() []document.Document {
+	return []document.Document{
+		{
+			ID:          "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e",
+			Name:        "Production Overview",
+			Type:        "dashboard",
+			Owner:       "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+			IsPrivate:   false,
+			Created:     fixedTime,
+			Description: "Main production monitoring dashboard",
+			Version:     3,
+			Modified:    fixedTime.Add(2 * time.Hour),
+		},
+		{
+			ID:        "c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f",
+			Name:      "Runbook: Incident Response",
+			Type:      "notebook",
+			Owner:     "8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e",
+			IsPrivate: true,
+			Created:   fixedTime.Add(-24 * time.Hour),
+			Version:   1,
+			Modified:  fixedTime.Add(-12 * time.Hour),
+		},
+		{
+			ID:          "d3e4f5a6-b7c8-4d9e-0f1a-2b3c4d5e6f7a",
+			Name:        "Performance Dashboard",
+			Type:        "dashboard",
+			Owner:       "9c0d1e2f-3a4b-5c6d-7e8f-9a0b1c2d3e4f",
+			IsPrivate:   false,
+			Created:     fixedTime.Add(-72 * time.Hour),
+			Description: "Service performance metrics and SLOs",
+			Version:     7,
+			Modified:    fixedTime.Add(-1 * time.Hour),
+		},
 	}
 }
 
-func settingsFixtures() []testSettingsObject {
-	return []testSettingsObject{
-		{SchemaID: "builtin:alerting.profile", Summary: "Default Alerting Profile", ObjectIDShort: "abc123", ObjectID: "vu9U3hXa3q0AAAABABhidWlsdGluOmFsZXJ0aW5nLnByb2ZpbGUABnRlbmFudAAGdGVuYW50ACRhYmMxMjM", Scope: "environment"},
-		{SchemaID: "builtin:problem.notifications", Summary: "Email Notification", ObjectIDShort: "def456", ObjectID: "vu9U3hXa3q0AAAABABxidWlsdGluOnByb2JsZW0ubm90aWZpY2F0aW9ucwAGdGVuYW50AAZ0ZW5hbnQAJGRlZjQ1Ng", Scope: "environment"},
-		{SchemaID: "builtin:tags.auto-tagging", Summary: "Environment Tag Rule", ObjectIDShort: "ghi789", ObjectID: "vu9U3hXa3q0AAAABABlidWlsdGluOnRhZ3MuYXV0by10YWdnaW5nAAZ0ZW5hbnQABnRlbmFudAAkZ2hpNzg5", Scope: "environment"},
+func settingsFixtures() []settings.SettingsObject {
+	return []settings.SettingsObject{
+		{
+			ObjectID:      "vu9U3hXa3q0AAAABABhidWlsdGluOmFsZXJ0aW5nLnByb2ZpbGUABnRlbmFudAAGdGVuYW50ACRhMWIyYzNkNC1lNWY2LTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQ",
+			SchemaID:      "builtin:alerting.profile",
+			SchemaVersion: "1.0.5",
+			Scope:         "environment",
+			Summary:       "Default Alerting Profile",
+			Value: map[string]any{
+				"name":            "Default",
+				"severityRules":   []any{},
+				"eventTypeFilter": []any{},
+			},
+			ObjectIDShort: "vu9U3hXa3q0AAAABAB...",
+			UID:           "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+			ScopeType:     "tenant",
+			ScopeID:       "tenant",
+		},
+		{
+			ObjectID:      "vu9U3hXa3q0AAAABABxidWlsdGluOnByb2JsZW0ubm90aWZpY2F0aW9ucwAGdGVuYW50AAZ0ZW5hbnQAJGIyYzNkNGU1LWY2YTctNGI4Yy05ZDBlLTFmMmEzYjRjNWQ2ZQ",
+			SchemaID:      "builtin:problem.notifications",
+			SchemaVersion: "2.1.0",
+			Scope:         "environment",
+			Summary:       "Email Notification",
+			Value: map[string]any{
+				"enabled":    true,
+				"type":       "EMAIL",
+				"recipients": "oncall-team@example.invalid",
+			},
+			ObjectIDShort: "vu9U3hXa3q0AAAABAB...",
+			UID:           "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+			ScopeType:     "tenant",
+			ScopeID:       "tenant",
+		},
+		{
+			ObjectID:      "vu9U3hXa3q0AAAABABlidWlsdGluOnRhZ3MuYXV0by10YWdnaW5nAAZ0ZW5hbnQABnRlbmFudAAkYzNkNGU1ZjYtYTdiOC00YzlkLTBlMWYtMmEzYjRjNWQ2ZTdm",
+			SchemaID:      "builtin:tags.auto-tagging",
+			SchemaVersion: "3.0.2",
+			Scope:         "environment",
+			Summary:       "Environment Tag Rule",
+			Value: map[string]any{
+				"name":  "environment",
+				"rules": []any{},
+			},
+			ObjectIDShort: "vu9U3hXa3q0AAAABAB...",
+			UID:           "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+			ScopeType:     "tenant",
+			ScopeID:       "tenant",
+		},
 	}
 }
 
-func executionFixtures() []testExecution {
-	return []testExecution{
-		{ID: "exec-001", Workflow: "wf-abc123", Title: "Deploy to Production", State: "SUCCEEDED", StartedAt: fixedTime, Runtime: 45, TriggerType: "Schedule"},
-		{ID: "exec-002", Workflow: "wf-abc123", Title: "Deploy to Production", State: "FAILED", StartedAt: fixedTime.Add(-time.Hour), Runtime: 12, TriggerType: "Manual"},
-		{ID: "exec-003", Workflow: "wf-def456", Title: "Daily Cleanup", State: "RUNNING", StartedAt: fixedTime.Add(-5 * time.Minute), Runtime: 0, TriggerType: "Schedule"},
+func executionFixtures() []workflow.Execution {
+	return []workflow.Execution{
+		{
+			ID:          "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
+			Workflow:    "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+			Title:       "Deploy to Production",
+			State:       "SUCCEEDED",
+			StartedAt:   fixedTime,
+			Runtime:     45,
+			TriggerType: "Schedule",
+		},
+		{
+			ID:          "e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b",
+			Workflow:    "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+			Title:       "Deploy to Production",
+			State:       "FAILED",
+			StartedAt:   fixedTime.Add(-time.Hour),
+			Runtime:     12,
+			TriggerType: "Manual",
+		},
+		{
+			ID:          "f6a7b8c9-d0e1-4f2a-3b4c-5d6e7f8a9b0c",
+			Workflow:    "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+			Title:       "Daily Cleanup",
+			State:       "RUNNING",
+			StartedAt:   fixedTime.Add(-5 * time.Minute),
+			Runtime:     0,
+			TriggerType: "Schedule",
+		},
 	}
 }
 
@@ -278,7 +419,7 @@ func TestGolden_GetDocuments(t *testing.T) {
 }
 
 func TestGolden_GetSettings(t *testing.T) {
-	settings := settingsFixtures()
+	objs := settingsFixtures()
 
 	formats := map[string]string{
 		"table": "table",
@@ -292,7 +433,7 @@ func TestGolden_GetSettings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
 			printer := NewPrinterWithWriter(format, &buf)
-			if err := printer.PrintList(settings); err != nil {
+			if err := printer.PrintList(objs); err != nil {
 				t.Fatalf("PrintList failed: %v", err)
 			}
 			assertGolden(t, "get/settings-"+name, buf.String())
@@ -348,7 +489,7 @@ func TestGolden_DescribeWorkflow(t *testing.T) {
 }
 
 func TestGolden_DescribeBucket(t *testing.T) {
-	bucket := bucketFixtures()[0]
+	b := bucketFixtures()[0]
 
 	formats := map[string]string{
 		"table": "table",
@@ -360,7 +501,7 @@ func TestGolden_DescribeBucket(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
 			printer := NewPrinterWithWriter(format, &buf)
-			if err := printer.Print(bucket); err != nil {
+			if err := printer.Print(b); err != nil {
 				t.Fatalf("Print failed: %v", err)
 			}
 			assertGolden(t, "describe/bucket-"+name, buf.String())
@@ -401,7 +542,7 @@ func TestGolden_EmptyResults(t *testing.T) {
 	t.Run("table", func(t *testing.T) {
 		var buf bytes.Buffer
 		printer := NewPrinterWithWriter("table", &buf)
-		if err := printer.PrintList([]testWorkflow{}); err != nil {
+		if err := printer.PrintList([]workflow.Workflow{}); err != nil {
 			t.Fatalf("PrintList failed: %v", err)
 		}
 		assertGolden(t, "empty/workflows-table", buf.String())
@@ -410,7 +551,7 @@ func TestGolden_EmptyResults(t *testing.T) {
 	t.Run("json", func(t *testing.T) {
 		var buf bytes.Buffer
 		printer := NewPrinterWithWriter("json", &buf)
-		if err := printer.PrintList([]testWorkflow{}); err != nil {
+		if err := printer.PrintList([]workflow.Workflow{}); err != nil {
 			t.Fatalf("PrintList failed: %v", err)
 		}
 		assertGolden(t, "empty/workflows-json", buf.String())

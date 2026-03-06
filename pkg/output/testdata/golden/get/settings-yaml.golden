@@ -1,15 +1,32 @@
-- schemaid: builtin:alerting.profile
+- objectid: vu9U3hXa3q0AAAABABhidWlsdGluOmFsZXJ0aW5nLnByb2ZpbGUABnRlbmFudAAGdGVuYW50ACRhMWIyYzNkNC1lNWY2LTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQ
+  schemaid: builtin:alerting.profile
+  schemaversion: 1.0.5
+  scope: environment
+  externalid: ""
   summary: Default Alerting Profile
-  objectidshort: abc123
-  objectid: vu9U3hXa3q0AAAABABhidWlsdGluOmFsZXJ0aW5nLnByb2ZpbGUABnRlbmFudAAGdGVuYW50ACRhYmMxMjM
+  value:
+    eventTypeFilter: []
+    name: Default
+    severityRules: []
+  modificationinfo: null
+- objectid: vu9U3hXa3q0AAAABABxidWlsdGluOnByb2JsZW0ubm90aWZpY2F0aW9ucwAGdGVuYW50AAZ0ZW5hbnQAJGIyYzNkNGU1LWY2YTctNGI4Yy05ZDBlLTFmMmEzYjRjNWQ2ZQ
+  schemaid: builtin:problem.notifications
+  schemaversion: 2.1.0
   scope: environment
-- schemaid: builtin:problem.notifications
+  externalid: ""
   summary: Email Notification
-  objectidshort: def456
-  objectid: vu9U3hXa3q0AAAABABxidWlsdGluOnByb2JsZW0ubm90aWZpY2F0aW9ucwAGdGVuYW50AAZ0ZW5hbnQAJGRlZjQ1Ng
+  value:
+    enabled: true
+    recipients: oncall-team@example.invalid
+    type: EMAIL
+  modificationinfo: null
+- objectid: vu9U3hXa3q0AAAABABlidWlsdGluOnRhZ3MuYXV0by10YWdnaW5nAAZ0ZW5hbnQABnRlbmFudAAkYzNkNGU1ZjYtYTdiOC00YzlkLTBlMWYtMmEzYjRjNWQ2ZTdm
+  schemaid: builtin:tags.auto-tagging
+  schemaversion: 3.0.2
   scope: environment
-- schemaid: builtin:tags.auto-tagging
+  externalid: ""
   summary: Environment Tag Rule
-  objectidshort: ghi789
-  objectid: vu9U3hXa3q0AAAABABlidWlsdGluOnRhZ3MuYXV0by10YWdnaW5nAAZ0ZW5hbnQABnRlbmFudAAkZ2hpNzg5
-  scope: environment
+  value:
+    name: environment
+    rules: []
+  modificationinfo: null
