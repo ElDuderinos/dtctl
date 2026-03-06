@@ -162,11 +162,12 @@ wait        - Wait for a specific condition (query results, resource state)
 alias       - Manage command aliases (set, list, delete, import, export)
 ctx         - Quick context management (list, switch, describe, set, delete)
 doctor      - Health check (config, context, token, connectivity, auth)
+diff        - Show differences between local and remote resources
+commands    - Machine-readable command catalog for AI agents (JSON/YAML, --brief, howto)
 
 # (not implemented yet)
 # patch       - Update specific fields of a resource
 # explain     - Show documentation for a resource type
-# diff        - Show differences between local and remote resources
 ```
 
 ### Syntax Pattern
@@ -196,9 +197,10 @@ dtctl query "fetch logs | limit 10"
 --field-selector string # Filter by fields (e.g., owner=me,type=notebook)
 -A, --agent           # Agent output mode: wrap all output in a structured JSON envelope
 --no-agent            # Disable auto-detected agent mode
+-w, --watch           # Watch for changes (with --interval, --watch-only)
 
 # (not implemented yet)
-# -w, --watch           # Watch for changes
+# -l, --selector        # Label selector for filtering
 ```
 
 ### Agent Mode (`--agent` / `-A`)

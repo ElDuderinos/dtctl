@@ -23,6 +23,7 @@ This document tracks the current implementation status of dtctl. For future plan
 - [x] OS keychain integration for secure token storage
 - [x] Command aliases: simple, parameterized ($1-$9), and shell aliases (with import/export)
 - [x] AI agent detection in User-Agent header for telemetry
+- [x] Agent output envelope (`--agent` / `-A`) with auto-detection, structured errors, and per-command context enrichment
 - [x] Enhanced error messages with contextual troubleshooting suggestions
 - [x] Machine-readable command catalog (`dtctl commands`) for AI agent bootstrap
 

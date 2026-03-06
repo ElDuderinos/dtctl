@@ -1,5 +1,6 @@
 # Spec: `dtctl commands` — Machine-Readable Command Catalog
 
+**Status**: Shipped (PR #62, merged 2026-03-06)
 **Priority**: P1
 **Effort**: Medium (2-3 days)
 **Impact**: Enables automated tool registration for AI agents and MCP servers
@@ -309,7 +310,9 @@ This is a natural extension of the `commands` feature and should be implemented 
 
 ## Implementation Plan
 
-### Step 1: Create cmd/commands.go (0.5 day)
+All steps completed in PR #62.
+
+### Step 1: Create cmd/commands.go (0.5 day) -- Done
 
 1. Add `commandsCmd` with `howto` subcommand
 2. Default behavior (no subcommand): output JSON command listing
@@ -318,7 +321,7 @@ This is a natural extension of the `commands` feature and should be implemented 
 5. Register under root command
 6. Add short/long descriptions following the help text spec
 
-### Step 2: Build command listing generator (1 day)
+### Step 2: Build command listing generator (1 day) -- Done
 
 1. Create `pkg/commands/listing.go`
 2. Walk the Cobra command tree (`rootCmd.Commands()`) to extract:
@@ -332,13 +335,13 @@ This is a natural extension of the `commands` feature and should be implemented 
 7. `--brief` flag strips verbose fields (descriptions, patterns, antipatterns, time_formats, safety_operation) but preserves `mutating`
 8. Positional arg filters to a specific resource or verb
 
-### Step 3: Build howto generator (0.5 day)
+### Step 3: Build howto generator (0.5 day) -- Done
 
 1. Create `pkg/commands/howto.go`
 2. Static markdown template with dynamic sections (version, resource list, safety levels)
 3. Include workflows, time formats, output formats, patterns
 
-### Step 4: Tests (0.5 day)
+### Step 4: Tests (0.5 day) -- Done
 
 1. Golden test for command listing output (must not change unexpectedly)
 2. Golden test for brief listing
@@ -353,16 +356,16 @@ This is a natural extension of the `commands` feature and should be implemented 
 
 ## Acceptance Criteria
 
-- [ ] `dtctl commands` outputs valid JSON describing all commands with `schema_version`
-- [ ] Every verb has a `mutating` boolean; mutating verbs include `safety_operation`
-- [ ] `dtctl commands --brief` is ≤40% the size of full output and preserves `mutating`
-- [ ] `dtctl commands workflows` outputs listing filtered to workflow-related verbs only
-- [ ] `dtctl commands wf` resolves alias and produces same output as `dtctl commands workflows`
-- [ ] `dtctl commands -o yaml` outputs YAML
-- [ ] `dtctl commands howto` outputs markdown with workflows, time formats, safety levels, patterns
-- [ ] Listing dynamically reflects registered commands (adding a new resource auto-includes it)
-- [ ] `time_formats` is present in the JSON schema (not only in howto)
-- [ ] Golden tests prevent listing format regressions
+- [x] `dtctl commands` outputs valid JSON describing all commands with `schema_version`
+- [x] Every verb has a `mutating` boolean; mutating verbs include `safety_operation`
+- [x] `dtctl commands --brief` is ≤40% the size of full output and preserves `mutating`
+- [x] `dtctl commands workflows` outputs listing filtered to workflow-related verbs only
+- [x] `dtctl commands wf` resolves alias and produces same output as `dtctl commands workflows`
+- [x] `dtctl commands -o yaml` outputs YAML
+- [x] `dtctl commands howto` outputs markdown with workflows, time formats, safety levels, patterns
+- [x] Listing dynamically reflects registered commands (adding a new resource auto-includes it)
+- [x] `time_formats` is present in the JSON schema (not only in howto)
+- [x] Golden tests prevent listing format regressions
 
 ---
 
