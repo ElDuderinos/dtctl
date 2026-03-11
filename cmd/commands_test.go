@@ -61,6 +61,7 @@ func TestCommandsCmd_MutatingVerbsCorrect(t *testing.T) {
 	mutatingVerbs := map[string]bool{
 		"apply":   true,
 		"create":  true,
+		"debug":   true,
 		"edit":    true,
 		"delete":  true,
 		"exec":    true,

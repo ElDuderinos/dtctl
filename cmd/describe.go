@@ -42,7 +42,8 @@ Supported resources:
 
   # Describe an SLO to see its evaluation status
   dtctl describe slo <slo-id>`,
-	RunE: requireSubcommand,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runDescribeCommand,
 }
 
 var describeAzureProviderCmd = &cobra.Command{
