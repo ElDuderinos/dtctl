@@ -6,15 +6,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/dynatrace-oss/dtctl/pkg/resources/livedebugger"
 	"github.com/dynatrace-oss/dtctl/pkg/safety"
-	"github.com/spf13/cobra"
 )
 
 const (
-	breakpointDefaultOutputMessage   = "Hit on {store.rookout.frame.filename}:{store.rookout.frame.line}"
-	breakpointRookoutTargetID        = "Rookout"
-	breakpointRookoutTargetName      = "send_rookout"
+	breakpointDefaultOutputMessage    = "Hit on {store.rookout.frame.filename}:{store.rookout.frame.line}"
+	breakpointRookoutTargetID         = "Rookout"
+	breakpointRookoutTargetName       = "send_rookout"
 	breakpointRookoutOnPremTargetName = "send_rookout_data_on_prem"
 )
 
@@ -210,18 +211,18 @@ func buildEditBreakpointSettings(rule map[string]interface{}, condition string, 
 	}
 
 	settings := map[string]interface{}{
-		"mutableRuleId":             row.ID,
-		"collectLocalsMethod":       stringValue(paths["store.rookout.frame"]),
-		"stackTraceCollection":      stringValue(paths["store.rookout.traceback"]) == "stack.traceback()",
-		"ttlHitLimit":               intValue(aug["globalHitLimit"], 100),
-		"ttlTimeLimit":              stringValue(aug["globalDisableAfterTime"]),
-		"ttlTimeLimitInterval":      0,
-		"collectedVariables":        extractCollectedVariables(paths),
-		"targetConfiguration":       map[string]interface{}{"targetId": extractBreakpointTargetID(rule)},
-		"outputMessage":             extractBreakpointOutputMessage(rule),
-		"condition":                 currentCondition,
-		"rateLimit":                 stringValue(aug["rateLimit"]),
-		"tracingCollection":         stringValue(paths["store.rookout.tracing"]) == "trace.dump()",
+		"mutableRuleId":               row.ID,
+		"collectLocalsMethod":         stringValue(paths["store.rookout.frame"]),
+		"stackTraceCollection":        stringValue(paths["store.rookout.traceback"]) == "stack.traceback()",
+		"ttlHitLimit":                 intValue(aug["globalHitLimit"], 100),
+		"ttlTimeLimit":                stringValue(aug["globalDisableAfterTime"]),
+		"ttlTimeLimitInterval":        0,
+		"collectedVariables":          extractCollectedVariables(paths),
+		"targetConfiguration":         map[string]interface{}{"targetId": extractBreakpointTargetID(rule)},
+		"outputMessage":               extractBreakpointOutputMessage(rule),
+		"condition":                   currentCondition,
+		"rateLimit":                   stringValue(aug["rateLimit"]),
+		"tracingCollection":           stringValue(paths["store.rookout.tracing"]) == "trace.dump()",
 		"processMonitoringCollection": stringValue(paths["store.rookout.processMonitoring"]) == "state.dump()",
 	}
 

@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
-	rookout "github.com/dynatrace-oss/dtctl/pkg/proto/rookout"
 	"google.golang.org/protobuf/proto"
+
+	rookout "github.com/dynatrace-oss/dtctl/pkg/proto/rookout"
 )
 
 // SnapshotPrinter prints snapshot query records with decoded snapshot.data payload.

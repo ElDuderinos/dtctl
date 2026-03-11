@@ -8,8 +8,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/dynatrace-oss/dtctl/pkg/resources/livedebugger"
 	"github.com/spf13/cobra"
+
+	"github.com/dynatrace-oss/dtctl/pkg/resources/livedebugger"
 )
 
 type breakpointStatusResult struct {

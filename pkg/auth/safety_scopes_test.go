@@ -170,21 +170,21 @@ func TestOAuthConfigWithSafetyLevel(t *testing.T) {
 		expectScopes int
 	}{
 		{
-			name:        "Production with readonly",
-			env:         EnvironmentProd,
-			safetyLevel: config.SafetyLevelReadOnly,
+			name:         "Production with readonly",
+			env:          EnvironmentProd,
+			safetyLevel:  config.SafetyLevelReadOnly,
 			expectScopes: 36,
 		},
 		{
-			name:        "Development with readwrite-all",
-			env:         EnvironmentDev,
-			safetyLevel: config.SafetyLevelReadWriteAll,
+			name:         "Development with readwrite-all",
+			env:          EnvironmentDev,
+			safetyLevel:  config.SafetyLevelReadWriteAll,
 			expectScopes: 63,
 		},
 		{
-			name:        "Hardening with dangerously-unrestricted",
-			env:         EnvironmentHard,
-			safetyLevel: config.SafetyLevelDangerouslyUnrestricted,
+			name:         "Hardening with dangerously-unrestricted",
+			env:          EnvironmentHard,
+			safetyLevel:  config.SafetyLevelDangerouslyUnrestricted,
 			expectScopes: 72,
 		},
 	}

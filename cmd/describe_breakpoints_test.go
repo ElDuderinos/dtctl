@@ -4,8 +4,8 @@ import "testing"
 
 func TestBuildBreakpointStatusResult(t *testing.T) {
 	rule := map[string]interface{}{
-		"id":            "bp-1",
-		"is_disabled":   false,
+		"id":             "bp-1",
+		"is_disabled":    false,
 		"disable_reason": "",
 		"aug_json": map[string]interface{}{
 			"location": map[string]interface{}{

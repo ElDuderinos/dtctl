@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	rookout "github.com/dynatrace-oss/dtctl/pkg/proto/rookout"
 	"google.golang.org/protobuf/proto"
+
+	rookout "github.com/dynatrace-oss/dtctl/pkg/proto/rookout"
 )
 
 func TestParseSnapshotStringMap_ArrayFormat(t *testing.T) {
