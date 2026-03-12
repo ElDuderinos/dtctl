@@ -12,12 +12,20 @@ import (
 	"github.com/dynatrace-oss/dtctl/pkg/safety"
 )
 
-var deleteAllBreakpointsOp = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
-	return handler.DeleteAllBreakpoints(workspaceID)
+type breakpointDeleteOps struct {
+	deleteAll func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error)
+	deleteOne func(handler *livedebugger.Handler, workspaceID, breakpointID string) (map[string]interface{}, error)
 }
 
-var deleteBreakpointOp = func(handler *livedebugger.Handler, workspaceID, breakpointID string) (map[string]interface{}, error) {
-	return handler.DeleteBreakpoint(workspaceID, breakpointID)
+func defaultBreakpointDeleteOps() breakpointDeleteOps {
+	return breakpointDeleteOps{
+		deleteAll: func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+			return handler.DeleteAllBreakpoints(workspaceID)
+		},
+		deleteOne: func(handler *livedebugger.Handler, workspaceID, breakpointID string) (map[string]interface{}, error) {
+			return handler.DeleteBreakpoint(workspaceID, breakpointID)
+		},
+	}
 }
 
 var deleteBreakpointCmd = &cobra.Command{
@@ -41,6 +49,7 @@ Examples:
 `,
 	Args: validateDeleteBreakpointArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ops := defaultBreakpointDeleteOps()
 		deleteAll, _ := cmd.Flags().GetBool("all")
 		yes, _ := cmd.Flags().GetBool("yes")
 		verbose := isDebugVerbose()
@@ -101,7 +110,7 @@ Examples:
 		}
 
 		if deleteAll {
-			return runDeleteAllBreakpoints(handler, workspaceID, rows, yes, verbose)
+			return runDeleteAllBreakpointsWithOps(handler, workspaceID, rows, yes, verbose, ops)
 		}
 
 		identifier := args[0]
@@ -110,14 +119,14 @@ Examples:
 			if len(targets) == 0 {
 				return fmt.Errorf("no breakpoints found at %s:%d", fileName, lineNumber)
 			}
-			return runDeleteBreakpointRows(handler, workspaceID, targets, yes, verbose)
+			return runDeleteBreakpointRowsWithOps(handler, workspaceID, targets, yes, verbose, ops)
 		}
 
 		if row, ok := findBreakpointRowByID(rows, identifier); ok {
-			return runDeleteBreakpointRows(handler, workspaceID, []breakpointRow{row}, yes, verbose)
+			return runDeleteBreakpointRowsWithOps(handler, workspaceID, []breakpointRow{row}, yes, verbose, ops)
 		}
 
-		return runDeleteBreakpointRows(handler, workspaceID, []breakpointRow{{ID: identifier}}, yes, verbose)
+		return runDeleteBreakpointRowsWithOps(handler, workspaceID, []breakpointRow{{ID: identifier}}, yes, verbose, ops)
 	},
 }
 
@@ -146,6 +155,10 @@ func validateDeleteBreakpointArgs(cmd *cobra.Command, args []string) error {
 }
 
 func runDeleteAllBreakpoints(handler *livedebugger.Handler, workspaceID string, rows []breakpointRow, yes bool, verbose bool) error {
+	return runDeleteAllBreakpointsWithOps(handler, workspaceID, rows, yes, verbose, defaultBreakpointDeleteOps())
+}
+
+func runDeleteAllBreakpointsWithOps(handler *livedebugger.Handler, workspaceID string, rows []breakpointRow, yes bool, verbose bool, ops breakpointDeleteOps) error {
 	if len(rows) == 0 {
 		return printBreakpointMessage("delete", "No breakpoints found in the current workspace")
 	}
@@ -161,7 +174,7 @@ func runDeleteAllBreakpoints(handler *livedebugger.Handler, workspaceID string, 
 		return printBreakpointMessage("delete", fmt.Sprintf("Dry run: would delete %d breakpoint(s) from the current workspace", len(rows)))
 	}
 
-	deleteResp, err := deleteAllBreakpointsOp(handler, workspaceID)
+	deleteResp, err := ops.deleteAll(handler, workspaceID)
 	if err != nil {
 		if verbose {
 			_ = printGraphQLResponse("deleteAllRulesFromWorkspaceV2", deleteResp)
@@ -186,6 +199,10 @@ func runDeleteAllBreakpoints(handler *livedebugger.Handler, workspaceID string, 
 }
 
 func runDeleteBreakpointRows(handler *livedebugger.Handler, workspaceID string, rows []breakpointRow, yes bool, verbose bool) error {
+	return runDeleteBreakpointRowsWithOps(handler, workspaceID, rows, yes, verbose, defaultBreakpointDeleteOps())
+}
+
+func runDeleteBreakpointRowsWithOps(handler *livedebugger.Handler, workspaceID string, rows []breakpointRow, yes bool, verbose bool, ops breakpointDeleteOps) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -216,7 +233,7 @@ func runDeleteBreakpointRows(handler *livedebugger.Handler, workspaceID string, 
 	deletedRows := make([]breakpointRow, 0, len(rows))
 	failures := make([]string, 0)
 	for _, row := range rows {
-		deleteResp, err := deleteBreakpointOp(handler, workspaceID, row.ID)
+		deleteResp, err := ops.deleteOne(handler, workspaceID, row.ID)
 		if err != nil {
 			if verbose {
 				_ = printGraphQLResponse("deleteRuleV2", deleteResp)

@@ -355,22 +355,12 @@ func TestRunGetBreakpoints_TableView(t *testing.T) {
 	originalAgentMode := agentMode
 	originalDebugMode := debugMode
 	originalVerbosity := verbosity
-	originalLoadConfig := loadConfigForLiveDebugger
-	originalNewClient := newClientFromConfigLiveDebugger
-	originalNewHandler := newLiveDebuggerHandler
-	originalGetOrCreate := getOrCreateWorkspaceLiveDebugger
-	originalGetRules := getWorkspaceRulesLiveDebugger
 	originalOut := rootCmd.OutOrStdout()
 	defer func() {
 		outputFormat = originalOutputFormat
 		agentMode = originalAgentMode
 		debugMode = originalDebugMode
 		verbosity = originalVerbosity
-		loadConfigForLiveDebugger = originalLoadConfig
-		newClientFromConfigLiveDebugger = originalNewClient
-		newLiveDebuggerHandler = originalNewHandler
-		getOrCreateWorkspaceLiveDebugger = originalGetOrCreate
-		getWorkspaceRulesLiveDebugger = originalGetRules
 		rootCmd.SetOut(originalOut)
 	}()
 
@@ -379,18 +369,19 @@ func TestRunGetBreakpoints_TableView(t *testing.T) {
 	debugMode = false
 	verbosity = 0
 
-	loadConfigForLiveDebugger = func() (*config.Config, error) {
+	deps := liveDebuggerDeps{}
+	deps.loadConfig = func() (*config.Config, error) {
 		cfg := config.NewConfig()
 		cfg.SetContext("test", "https://example.invalid", "token")
 		cfg.CurrentContext = "test"
 		return cfg, nil
 	}
-	newClientFromConfigLiveDebugger = func(cfg *config.Config) (*client.Client, error) { return nil, nil }
-	newLiveDebuggerHandler = func(c *client.Client, environment string) (*livedebugger.Handler, error) { return nil, nil }
-	getOrCreateWorkspaceLiveDebugger = func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
+	deps.newClient = func(cfg *config.Config) (*client.Client, error) { return nil, nil }
+	deps.newHandler = func(c *client.Client, environment string) (*livedebugger.Handler, error) { return nil, nil }
+	deps.getOrCreateWorkspace = func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
 		return map[string]interface{}{"data": map[string]interface{}{}}, "ws-1", nil
 	}
-	getWorkspaceRulesLiveDebugger = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+	deps.getWorkspaceRules = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
 		return map[string]interface{}{
 			"data": map[string]interface{}{
 				"org": map[string]interface{}{
@@ -413,7 +404,7 @@ func TestRunGetBreakpoints_TableView(t *testing.T) {
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 
-	if err := runGetBreakpoints(nil, nil); err != nil {
+	if err := runGetBreakpointsWithDeps(nil, nil, deps); err != nil {
 		t.Fatalf("runGetBreakpoints returned error: %v", err)
 	}
 
@@ -428,21 +419,11 @@ func TestRunGetBreakpoints_StructuredView(t *testing.T) {
 	originalAgentMode := agentMode
 	originalDebugMode := debugMode
 	originalVerbosity := verbosity
-	originalLoadConfig := loadConfigForLiveDebugger
-	originalNewClient := newClientFromConfigLiveDebugger
-	originalNewHandler := newLiveDebuggerHandler
-	originalGetOrCreate := getOrCreateWorkspaceLiveDebugger
-	originalGetRules := getWorkspaceRulesLiveDebugger
 	defer func() {
 		outputFormat = originalOutputFormat
 		agentMode = originalAgentMode
 		debugMode = originalDebugMode
 		verbosity = originalVerbosity
-		loadConfigForLiveDebugger = originalLoadConfig
-		newClientFromConfigLiveDebugger = originalNewClient
-		newLiveDebuggerHandler = originalNewHandler
-		getOrCreateWorkspaceLiveDebugger = originalGetOrCreate
-		getWorkspaceRulesLiveDebugger = originalGetRules
 	}()
 
 	outputFormat = "json"
@@ -450,23 +431,24 @@ func TestRunGetBreakpoints_StructuredView(t *testing.T) {
 	debugMode = false
 	verbosity = 0
 
-	loadConfigForLiveDebugger = func() (*config.Config, error) {
+	deps := liveDebuggerDeps{}
+	deps.loadConfig = func() (*config.Config, error) {
 		cfg := config.NewConfig()
 		cfg.SetContext("test", "https://example.invalid", "token")
 		cfg.CurrentContext = "test"
 		return cfg, nil
 	}
-	newClientFromConfigLiveDebugger = func(cfg *config.Config) (*client.Client, error) { return nil, nil }
-	newLiveDebuggerHandler = func(c *client.Client, environment string) (*livedebugger.Handler, error) { return nil, nil }
-	getOrCreateWorkspaceLiveDebugger = func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
+	deps.newClient = func(cfg *config.Config) (*client.Client, error) { return nil, nil }
+	deps.newHandler = func(c *client.Client, environment string) (*livedebugger.Handler, error) { return nil, nil }
+	deps.getOrCreateWorkspace = func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
 		return map[string]interface{}{"data": map[string]interface{}{}}, "ws-1", nil
 	}
-	getWorkspaceRulesLiveDebugger = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+	deps.getWorkspaceRules = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
 		return map[string]interface{}{"data": map[string]interface{}{"org": map[string]interface{}{"workspace": map[string]interface{}{"rules": []interface{}{}}}}}, nil
 	}
 
 	output := captureStdout(t, func() {
-		if err := runGetBreakpoints(nil, nil); err != nil {
+		if err := runGetBreakpointsWithDeps(nil, nil, deps); err != nil {
 			t.Fatalf("runGetBreakpoints returned error: %v", err)
 		}
 	})
@@ -477,35 +459,23 @@ func TestRunGetBreakpoints_StructuredView(t *testing.T) {
 }
 
 func TestRunGetBreakpoints_GetWorkspaceRulesError(t *testing.T) {
-	originalLoadConfig := loadConfigForLiveDebugger
-	originalNewClient := newClientFromConfigLiveDebugger
-	originalNewHandler := newLiveDebuggerHandler
-	originalGetOrCreate := getOrCreateWorkspaceLiveDebugger
-	originalGetRules := getWorkspaceRulesLiveDebugger
-	defer func() {
-		loadConfigForLiveDebugger = originalLoadConfig
-		newClientFromConfigLiveDebugger = originalNewClient
-		newLiveDebuggerHandler = originalNewHandler
-		getOrCreateWorkspaceLiveDebugger = originalGetOrCreate
-		getWorkspaceRulesLiveDebugger = originalGetRules
-	}()
-
-	loadConfigForLiveDebugger = func() (*config.Config, error) {
+	deps := liveDebuggerDeps{}
+	deps.loadConfig = func() (*config.Config, error) {
 		cfg := config.NewConfig()
 		cfg.SetContext("test", "https://example.invalid", "token")
 		cfg.CurrentContext = "test"
 		return cfg, nil
 	}
-	newClientFromConfigLiveDebugger = func(cfg *config.Config) (*client.Client, error) { return nil, nil }
-	newLiveDebuggerHandler = func(c *client.Client, environment string) (*livedebugger.Handler, error) { return nil, nil }
-	getOrCreateWorkspaceLiveDebugger = func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
+	deps.newClient = func(cfg *config.Config) (*client.Client, error) { return nil, nil }
+	deps.newHandler = func(c *client.Client, environment string) (*livedebugger.Handler, error) { return nil, nil }
+	deps.getOrCreateWorkspace = func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
 		return map[string]interface{}{"data": map[string]interface{}{}}, "ws-1", nil
 	}
-	getWorkspaceRulesLiveDebugger = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+	deps.getWorkspaceRules = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
 		return nil, os.ErrPermission
 	}
 
-	err := runGetBreakpoints(nil, nil)
+	err := runGetBreakpointsWithDeps(nil, nil, deps)
 	if err == nil {
 		t.Fatalf("expected get workspace rules error")
 	}

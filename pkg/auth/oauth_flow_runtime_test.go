@@ -15,17 +15,13 @@ import (
 )
 
 func TestOAuthFlowStartCancelled(t *testing.T) {
-	origOpen := oauthOpenURL
-	defer func() { oauthOpenURL = origOpen }()
-
-	oauthOpenURL = func(url string) error { return errors.New("browser unavailable") }
-
 	cfg := DefaultOAuthConfig()
 	cfg.Port = 0
 	flow, err := NewOAuthFlow(cfg)
 	if err != nil {
 		t.Fatalf("NewOAuthFlow failed: %v", err)
 	}
+	flow.openURL = func(url string) error { return errors.New("browser unavailable") }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -37,11 +33,9 @@ func TestOAuthFlowStartCancelled(t *testing.T) {
 }
 
 func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
-	origDo := oauthHTTPDo
-	defer func() { oauthHTTPDo = origDo }()
-
 	t.Run("refresh token success", func(t *testing.T) {
-		oauthHTTPDo = func(req *http.Request) (*http.Response, error) {
+		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
+		flow.httpDo = func(req *http.Request) (*http.Response, error) {
 			if req.Method != http.MethodPost {
 				t.Fatalf("unexpected method: %s", req.Method)
 			}
@@ -52,7 +46,6 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 			}, nil
 		}
 
-		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
 		tokens, err := flow.RefreshToken("r1")
 		if err != nil {
 			t.Fatalf("RefreshToken failed: %v", err)
@@ -63,7 +56,8 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 	})
 
 	t.Run("refresh token non-200", func(t *testing.T) {
-		oauthHTTPDo = func(req *http.Request) (*http.Response, error) {
+		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
+		flow.httpDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusBadRequest,
 				Status:     "400 Bad Request",
@@ -71,7 +65,6 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 				Header:     make(http.Header),
 			}, nil
 		}
-		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
 		_, err := flow.RefreshToken("r1")
 		if err == nil {
 			t.Fatalf("expected refresh error")
@@ -79,7 +72,8 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 	})
 
 	t.Run("user info success", func(t *testing.T) {
-		oauthHTTPDo = func(req *http.Request) (*http.Response, error) {
+		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
+		flow.httpDo = func(req *http.Request) (*http.Response, error) {
 			if req.Header.Get("Authorization") != "Bearer tok" {
 				t.Fatalf("missing auth header")
 			}
@@ -89,7 +83,6 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 				Header:     make(http.Header),
 			}, nil
 		}
-		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
 		user, err := flow.GetUserInfo("tok")
 		if err != nil {
 			t.Fatalf("GetUserInfo failed: %v", err)
@@ -100,7 +93,8 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 	})
 
 	t.Run("user info error status", func(t *testing.T) {
-		oauthHTTPDo = func(req *http.Request) (*http.Response, error) {
+		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
+		flow.httpDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusUnauthorized,
 				Status:     "401 Unauthorized",
@@ -108,7 +102,6 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 				Header:     make(http.Header),
 			}, nil
 		}
-		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
 		_, err := flow.GetUserInfo("tok")
 		if err == nil {
 			t.Fatalf("expected user info error")
@@ -117,9 +110,6 @@ func TestOAuthFlowRefreshTokenAndUserInfo(t *testing.T) {
 }
 
 func TestOAuthFlowCallbackHandlerBranches(t *testing.T) {
-	origDo := oauthHTTPDo
-	defer func() { oauthHTTPDo = origDo }()
-
 	newFlow := func(t *testing.T) *OAuthFlow {
 		t.Helper()
 		flow, err := NewOAuthFlow(DefaultOAuthConfig())
@@ -165,7 +155,7 @@ func TestOAuthFlowCallbackHandlerBranches(t *testing.T) {
 
 	t.Run("exchange code success", func(t *testing.T) {
 		flow := newFlow(t)
-		oauthHTTPDo = func(req *http.Request) (*http.Response, error) {
+		flow.httpDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(strings.NewReader(`{"access_token":"a","refresh_token":"r","expires_in":60}`)),
@@ -225,9 +215,6 @@ func TestPublishResultSingleDelivery(t *testing.T) {
 }
 
 func TestOAuthFlowExchangeCodeBranches(t *testing.T) {
-	origDo := oauthHTTPDo
-	defer func() { oauthHTTPDo = origDo }()
-
 	t.Run("invalid token URL request creation", func(t *testing.T) {
 		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
 		flow.config.TokenURL = "://bad"
@@ -239,7 +226,7 @@ func TestOAuthFlowExchangeCodeBranches(t *testing.T) {
 
 	t.Run("http request error", func(t *testing.T) {
 		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
-		oauthHTTPDo = func(req *http.Request) (*http.Response, error) {
+		flow.httpDo = func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("dial failed")
 		}
 		_, err := flow.exchangeCode("abc")
@@ -250,7 +237,7 @@ func TestOAuthFlowExchangeCodeBranches(t *testing.T) {
 
 	t.Run("decode error", func(t *testing.T) {
 		flow, _ := NewOAuthFlow(DefaultOAuthConfig())
-		oauthHTTPDo = func(req *http.Request) (*http.Response, error) {
+		flow.httpDo = func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(strings.NewReader("{not-json")),

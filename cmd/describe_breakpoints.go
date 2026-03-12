@@ -87,9 +87,13 @@ func shouldHandleAsBreakpointDescribe(identifier string) bool {
 }
 
 func runDescribeBreakpoint(cmd *cobra.Command, identifier string) error {
+	return runDescribeBreakpointWithDeps(cmd, identifier, defaultLiveDebuggerDeps())
+}
+
+func runDescribeBreakpointWithDeps(cmd *cobra.Command, identifier string, deps liveDebuggerDeps) error {
 	verbose := isDebugVerbose()
 
-	cfg, err := loadConfigForLiveDebugger()
+	cfg, err := deps.loadConfig()
 	if err != nil {
 		return err
 	}
@@ -99,17 +103,17 @@ func runDescribeBreakpoint(cmd *cobra.Command, identifier string) error {
 		return err
 	}
 
-	c, err := newClientFromConfigLiveDebugger(cfg)
+	c, err := deps.newClient(cfg)
 	if err != nil {
 		return err
 	}
 
-	handler, err := newLiveDebuggerHandler(c, ctx.Environment)
+	handler, err := deps.newHandler(c, ctx.Environment)
 	if err != nil {
 		return err
 	}
 
-	workspaceResp, workspaceID, err := getOrCreateWorkspaceLiveDebugger(handler, currentProjectPath())
+	workspaceResp, workspaceID, err := deps.getOrCreateWorkspace(handler, currentProjectPath())
 	if err != nil {
 		if verbose {
 			_ = printGraphQLResponse("getOrCreateWorkspaceV2", workspaceResp)
@@ -122,7 +126,7 @@ func runDescribeBreakpoint(cmd *cobra.Command, identifier string) error {
 		}
 	}
 
-	workspaceRulesResp, err := getWorkspaceRulesLiveDebugger(handler, workspaceID)
+	workspaceRulesResp, err := deps.getWorkspaceRules(handler, workspaceID)
 	if err != nil {
 		if verbose {
 			_ = printGraphQLResponse("getWorkspaceRules", workspaceRulesResp)
@@ -151,7 +155,7 @@ func runDescribeBreakpoint(cmd *cobra.Command, identifier string) error {
 	results := make([]breakpointStatusResult, 0, len(targetRules))
 	for _, rule := range targetRules {
 		ruleID := rule.ID
-		statusResp, err := getRuleStatusBreakdownLiveDebugger(handler, ruleID)
+		statusResp, err := deps.getRuleStatusBreakdown(handler, ruleID)
 		if err != nil {
 			if verbose {
 				_ = printGraphQLResponse("GetRuleStatusBreakdown", statusResp)

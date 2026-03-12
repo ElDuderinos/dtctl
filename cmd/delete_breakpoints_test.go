@@ -229,34 +229,34 @@ func TestRunDeleteAllBreakpoints_Success(t *testing.T) {
 	originalOutputFormat := outputFormat
 	originalAgentMode := agentMode
 	originalPlainMode := plainMode
-	originalDeleteAllOp := deleteAllBreakpointsOp
 	defer func() {
 		dryRun = originalDryRun
 		outputFormat = originalOutputFormat
 		agentMode = originalAgentMode
 		plainMode = originalPlainMode
-		deleteAllBreakpointsOp = originalDeleteAllOp
 	}()
 
 	dryRun = false
 	outputFormat = "table"
 	agentMode = false
 	plainMode = true
-	deleteAllBreakpointsOp = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
-		return map[string]interface{}{
-			"data": map[string]interface{}{
-				"org": map[string]interface{}{
-					"workspace": map[string]interface{}{
-						"deleteAllRulesFromWorkspaceV2": []interface{}{"imm-1", "imm-2"},
+	ops := breakpointDeleteOps{
+		deleteAll: func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"data": map[string]interface{}{
+					"org": map[string]interface{}{
+						"workspace": map[string]interface{}{
+							"deleteAllRulesFromWorkspaceV2": []interface{}{"imm-1", "imm-2"},
+						},
 					},
 				},
-			},
-		}, nil
+			}, nil
+		},
 	}
 
 	rows := []breakpointRow{{ID: "bp-1", Filename: "A.java", Line: 10}}
 	output := captureStdout(t, func() {
-		if err := runDeleteAllBreakpoints(nil, "workspace-1", rows, true, false); err != nil {
+		if err := runDeleteAllBreakpointsWithOps(nil, "workspace-1", rows, true, false, ops); err != nil {
 			t.Fatalf("runDeleteAllBreakpoints returned error: %v", err)
 		}
 	})
@@ -268,19 +268,19 @@ func TestRunDeleteAllBreakpoints_Success(t *testing.T) {
 
 func TestRunDeleteAllBreakpoints_MalformedResponse(t *testing.T) {
 	originalDryRun := dryRun
-	originalDeleteAllOp := deleteAllBreakpointsOp
 	defer func() {
 		dryRun = originalDryRun
-		deleteAllBreakpointsOp = originalDeleteAllOp
 	}()
 
 	dryRun = false
-	deleteAllBreakpointsOp = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
-		return map[string]interface{}{"data": map[string]interface{}{}}, nil
+	ops := breakpointDeleteOps{
+		deleteAll: func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+			return map[string]interface{}{"data": map[string]interface{}{}}, nil
+		},
 	}
 
 	rows := []breakpointRow{{ID: "bp-1", Filename: "A.java", Line: 10}}
-	err := runDeleteAllBreakpoints(nil, "workspace-1", rows, true, false)
+	err := runDeleteAllBreakpointsWithOps(nil, "workspace-1", rows, true, false, ops)
 	if err == nil {
 		t.Fatalf("expected error for malformed deleteAll response")
 	}
@@ -300,24 +300,24 @@ func TestRunDeleteBreakpointRows_PartialFailure(t *testing.T) {
 	originalOutputFormat := outputFormat
 	originalAgentMode := agentMode
 	originalPlainMode := plainMode
-	originalDeleteOp := deleteBreakpointOp
 	defer func() {
 		dryRun = originalDryRun
 		outputFormat = originalOutputFormat
 		agentMode = originalAgentMode
 		plainMode = originalPlainMode
-		deleteBreakpointOp = originalDeleteOp
 	}()
 
 	dryRun = false
 	outputFormat = "table"
 	agentMode = false
 	plainMode = true
-	deleteBreakpointOp = func(handler *livedebugger.Handler, workspaceID, breakpointID string) (map[string]interface{}, error) {
-		if breakpointID == "bp-2" {
-			return nil, errors.New("remote delete failed")
-		}
-		return map[string]interface{}{"ok": true}, nil
+	ops := breakpointDeleteOps{
+		deleteOne: func(handler *livedebugger.Handler, workspaceID, breakpointID string) (map[string]interface{}, error) {
+			if breakpointID == "bp-2" {
+				return nil, errors.New("remote delete failed")
+			}
+			return map[string]interface{}{"ok": true}, nil
+		},
 	}
 
 	rows := []breakpointRow{
@@ -326,7 +326,7 @@ func TestRunDeleteBreakpointRows_PartialFailure(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		err := runDeleteBreakpointRows(nil, "workspace-1", rows, true, false)
+		err := runDeleteBreakpointRowsWithOps(nil, "workspace-1", rows, true, false, ops)
 		if err == nil {
 			t.Fatalf("expected partial failure error")
 		}
@@ -378,20 +378,20 @@ func TestRunDeleteBreakpointRows_CancelledConfirmation(t *testing.T) {
 func TestRunDeleteBreakpointRows_VerbosePrintError(t *testing.T) {
 	originalDryRun := dryRun
 	originalPlainMode := plainMode
-	originalDeleteOp := deleteBreakpointOp
 	defer func() {
 		dryRun = originalDryRun
 		plainMode = originalPlainMode
-		deleteBreakpointOp = originalDeleteOp
 	}()
 
 	dryRun = false
 	plainMode = true
-	deleteBreakpointOp = func(handler *livedebugger.Handler, workspaceID, breakpointID string) (map[string]interface{}, error) {
-		return map[string]interface{}{"bad": func() {}}, nil
+	ops := breakpointDeleteOps{
+		deleteOne: func(handler *livedebugger.Handler, workspaceID, breakpointID string) (map[string]interface{}, error) {
+			return map[string]interface{}{"bad": func() {}}, nil
+		},
 	}
 
-	err := runDeleteBreakpointRows(nil, "workspace-1", []breakpointRow{{ID: "bp-1", Filename: "A.java", Line: 10}}, true, true)
+	err := runDeleteBreakpointRowsWithOps(nil, "workspace-1", []breakpointRow{{ID: "bp-1", Filename: "A.java", Line: 10}}, true, true, ops)
 	if err == nil {
 		t.Fatalf("expected printGraphQLResponse marshal error")
 	}
@@ -402,18 +402,18 @@ func TestRunDeleteBreakpointRows_VerbosePrintError(t *testing.T) {
 
 func TestRunDeleteAllBreakpoints_VerbosePrintError(t *testing.T) {
 	originalDryRun := dryRun
-	originalDeleteAllOp := deleteAllBreakpointsOp
 	defer func() {
 		dryRun = originalDryRun
-		deleteAllBreakpointsOp = originalDeleteAllOp
 	}()
 
 	dryRun = false
-	deleteAllBreakpointsOp = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
-		return map[string]interface{}{"bad": func() {}}, nil
+	ops := breakpointDeleteOps{
+		deleteAll: func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+			return map[string]interface{}{"bad": func() {}}, nil
+		},
 	}
 
-	err := runDeleteAllBreakpoints(nil, "workspace-1", []breakpointRow{{ID: "bp-1", Filename: "A.java", Line: 10}}, true, true)
+	err := runDeleteAllBreakpointsWithOps(nil, "workspace-1", []breakpointRow{{ID: "bp-1", Filename: "A.java", Line: 10}}, true, true, ops)
 	if err == nil {
 		t.Fatalf("expected printGraphQLResponse marshal error")
 	}

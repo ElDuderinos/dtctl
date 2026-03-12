@@ -413,20 +413,14 @@ type OAuthFlow struct {
 	server        *http.Server
 	resultChan    chan *authResult
 	resultOnce    sync.Once
+	openURL       func(string) error
+	httpDo        func(*http.Request) (*http.Response, error)
 }
 
 type authResult struct {
 	tokens *TokenSet
 	err    error
 }
-
-var (
-	oauthOpenURL = browser.OpenURL
-	oauthHTTPDo  = func(req *http.Request) (*http.Response, error) {
-		client := &http.Client{Timeout: 30 * time.Second}
-		return client.Do(req)
-	}
-)
 
 func NewOAuthFlow(config *OAuthConfig) (*OAuthFlow, error) {
 	if config == nil {
@@ -449,6 +443,11 @@ func NewOAuthFlow(config *OAuthConfig) (*OAuthFlow, error) {
 		codeChallenge: challenge,
 		state:         state,
 		resultChan:    make(chan *authResult, 1),
+		openURL:       browser.OpenURL,
+		httpDo: func(req *http.Request) (*http.Response, error) {
+			client := &http.Client{Timeout: 30 * time.Second}
+			return client.Do(req)
+		},
 	}, nil
 }
 
@@ -464,7 +463,7 @@ func (f *OAuthFlow) Start(ctx context.Context) (*TokenSet, error) {
 	fmt.Println("If the browser doesn't open automatically, please visit:")
 	fmt.Println(authURL)
 
-	if err := oauthOpenURL(authURL); err != nil {
+	if err := f.openURL(authURL); err != nil {
 		fmt.Printf("Failed to open browser automatically: %v\n", err)
 		fmt.Println("Please open the URL above manually.")
 	}
@@ -494,7 +493,7 @@ func (f *OAuthFlow) RefreshToken(refreshToken string) (*TokenSet, error) {
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := oauthHTTPDo(req)
+	resp, err := f.httpDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("token refresh request failed: %w", err)
 	}
@@ -523,7 +522,7 @@ func (f *OAuthFlow) GetUserInfo(accessToken string) (*UserInfo, error) {
 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := oauthHTTPDo(req)
+	resp, err := f.httpDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("user info request failed: %w", err)
 	}
@@ -654,7 +653,7 @@ func (f *OAuthFlow) exchangeCode(code string) (*TokenSet, error) {
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := oauthHTTPDo(req)
+	resp, err := f.httpDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange request failed: %w", err)
 	}

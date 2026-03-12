@@ -12,25 +12,39 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dynatrace-oss/dtctl/pkg/client"
+	"github.com/dynatrace-oss/dtctl/pkg/config"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/livedebugger"
 	"github.com/dynatrace-oss/dtctl/pkg/safety"
 )
 
-var (
-	debugFilters                     string
-	loadConfigForLiveDebugger        = LoadConfig
-	newClientFromConfigLiveDebugger  = NewClientFromConfig
-	newLiveDebuggerHandler           = livedebugger.NewHandler
-	getOrCreateWorkspaceLiveDebugger = func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
-		return handler.GetOrCreateWorkspace(projectPath)
+var debugFilters string
+
+type liveDebuggerDeps struct {
+	loadConfig             func() (*config.Config, error)
+	newClient              func(*config.Config) (*client.Client, error)
+	newHandler             func(*client.Client, string) (*livedebugger.Handler, error)
+	getOrCreateWorkspace   func(*livedebugger.Handler, string) (map[string]interface{}, string, error)
+	getWorkspaceRules      func(*livedebugger.Handler, string) (map[string]interface{}, error)
+	getRuleStatusBreakdown func(*livedebugger.Handler, string) (map[string]interface{}, error)
+}
+
+func defaultLiveDebuggerDeps() liveDebuggerDeps {
+	return liveDebuggerDeps{
+		loadConfig: LoadConfig,
+		newClient:  NewClientFromConfig,
+		newHandler: livedebugger.NewHandler,
+		getOrCreateWorkspace: func(handler *livedebugger.Handler, projectPath string) (map[string]interface{}, string, error) {
+			return handler.GetOrCreateWorkspace(projectPath)
+		},
+		getWorkspaceRules: func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
+			return handler.GetWorkspaceRules(workspaceID)
+		},
+		getRuleStatusBreakdown: func(handler *livedebugger.Handler, ruleID string) (map[string]interface{}, error) {
+			return handler.GetRuleStatusBreakdown(ruleID)
+		},
 	}
-	getWorkspaceRulesLiveDebugger = func(handler *livedebugger.Handler, workspaceID string) (map[string]interface{}, error) {
-		return handler.GetWorkspaceRules(workspaceID)
-	}
-	getRuleStatusBreakdownLiveDebugger = func(handler *livedebugger.Handler, ruleID string) (map[string]interface{}, error) {
-		return handler.GetRuleStatusBreakdown(ruleID)
-	}
-)
+}
 
 type breakpointRow struct {
 	ID       string
@@ -51,12 +65,13 @@ Examples:
 	dtctl get breakpoints`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		verbose := isDebugVerbose()
+		deps := defaultLiveDebuggerDeps()
 
 		if strings.TrimSpace(debugFilters) == "" {
 			return fmt.Errorf("--filters is required")
 		}
 
-		cfg, err := loadConfigForLiveDebugger()
+		cfg, err := deps.loadConfig()
 		if err != nil {
 			return err
 		}
@@ -66,17 +81,17 @@ Examples:
 			return err
 		}
 
-		c, err := newClientFromConfigLiveDebugger(cfg)
+		c, err := deps.newClient(cfg)
 		if err != nil {
 			return err
 		}
 
-		handler, err := newLiveDebuggerHandler(c, ctx.Environment)
+		handler, err := deps.newHandler(c, ctx.Environment)
 		if err != nil {
 			return err
 		}
 
-		workspaceResp, workspaceID, err := getOrCreateWorkspaceLiveDebugger(handler, currentProjectPath())
+		workspaceResp, workspaceID, err := deps.getOrCreateWorkspace(handler, currentProjectPath())
 		if err != nil {
 			if verbose {
 				_ = printGraphQLResponse("getOrCreateWorkspaceV2", workspaceResp)
@@ -122,9 +137,13 @@ Examples:
 }
 
 func runGetBreakpoints(cmd *cobra.Command, args []string) error {
+	return runGetBreakpointsWithDeps(cmd, args, defaultLiveDebuggerDeps())
+}
+
+func runGetBreakpointsWithDeps(cmd *cobra.Command, args []string, deps liveDebuggerDeps) error {
 	verbose := isDebugVerbose()
 
-	cfg, err := loadConfigForLiveDebugger()
+	cfg, err := deps.loadConfig()
 	if err != nil {
 		return err
 	}
@@ -134,17 +153,17 @@ func runGetBreakpoints(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c, err := newClientFromConfigLiveDebugger(cfg)
+	c, err := deps.newClient(cfg)
 	if err != nil {
 		return err
 	}
 
-	handler, err := newLiveDebuggerHandler(c, ctx.Environment)
+	handler, err := deps.newHandler(c, ctx.Environment)
 	if err != nil {
 		return err
 	}
 
-	workspaceResp, workspaceID, err := getOrCreateWorkspaceLiveDebugger(handler, currentProjectPath())
+	workspaceResp, workspaceID, err := deps.getOrCreateWorkspace(handler, currentProjectPath())
 	if err != nil {
 		if verbose {
 			_ = printGraphQLResponse("getOrCreateWorkspaceV2", workspaceResp)
@@ -157,7 +176,7 @@ func runGetBreakpoints(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	workspaceRulesResp, err := getWorkspaceRulesLiveDebugger(handler, workspaceID)
+	workspaceRulesResp, err := deps.getWorkspaceRules(handler, workspaceID)
 	if err != nil {
 		if verbose {
 			_ = printGraphQLResponse("getWorkspaceRules", workspaceRulesResp)
