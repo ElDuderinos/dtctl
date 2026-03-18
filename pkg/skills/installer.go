@@ -119,6 +119,14 @@ var agents = []Agent{
 		EnvVar:      "OPENCODE",
 		DetectName:  "opencode",
 	},
+	{
+		Name:        "openclaw",
+		DisplayName: "OpenClaw",
+		ProjectPath: filepath.Join("skills", "dtctl", "SKILL.md"),
+		GlobalPath:  filepath.Join(".openclaw", "workspace", "skills", "dtctl", "SKILL.md"),
+		EnvVar:      "OPENCLAW",
+		DetectName:  "openclaw",
+	},
 }
 
 // TemplateData contains variables available for content rendering.
@@ -219,6 +227,14 @@ func wrapForAgent(agent Agent, content string, data TemplateData) (string, error
 		sb.WriteString("author: \"Dynatrace\"\n")
 		sb.WriteString("---\n\n")
 		sb.WriteString(content)
+	case "openclaw":
+		// OpenClaw uses AgentSkills format: SKILL.md with YAML frontmatter
+		// containing name and description fields.
+		sb.WriteString("---\n")
+		sb.WriteString("name: dtctl\n")
+		sb.WriteString(fmt.Sprintf("description: Operate Dynatrace via dtctl CLI (v%s) — run DQL queries, manage dashboards/notebooks/workflows/SLOs, explore settings, and create observability artifacts. Use when the user asks about Dynatrace data, metrics, traces, logs, dashboards, notebooks, SLOs, settings, or anything requiring Dynatrace platform interaction.\n", data.Version))
+		sb.WriteString("---\n\n")
+		sb.WriteString(content)
 	default:
 		// Claude, Copilot, OpenCode — plain markdown with a version header.
 		sb.WriteString(fmt.Sprintf("<!-- dtctl skill v%s -->\n\n", data.Version))
@@ -260,12 +276,43 @@ func Install(agent Agent, baseDir string, global bool, overwrite bool) (*Install
 		return nil, fmt.Errorf("failed to write skill file: %w", err)
 	}
 
+	// For OpenClaw, also copy reference files alongside SKILL.md.
+	if agent.Name == "openclaw" {
+		if err := copyReferences(filepath.Dir(path)); err != nil {
+			return nil, fmt.Errorf("failed to copy references: %w", err)
+		}
+	}
+
 	return &InstallResult{
 		Agent:    agent,
 		Path:     path,
 		Global:   global,
 		Replaced: replaced,
 	}, nil
+}
+
+// copyReferences copies embedded reference files to the skill directory.
+// OpenClaw skills use progressive disclosure — references are loaded on demand.
+func copyReferences(skillDir string) error {
+	refsDir := filepath.Join(skillDir, "references")
+	if err := os.MkdirAll(refsDir, 0o755); err != nil {
+		return err
+	}
+
+	return fs.WalkDir(dtctlskill.Content, "references", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		destPath := filepath.Join(skillDir, path)
+		if d.IsDir() {
+			return os.MkdirAll(destPath, 0o755)
+		}
+		data, err := fs.ReadFile(dtctlskill.Content, path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destPath, data, 0o644)
+	})
 }
 
 // Uninstall removes installed skill files. It checks both project-local and
@@ -284,6 +331,15 @@ func Uninstall(agent Agent, baseDir string) ([]string, error) {
 		} else {
 			removed = append(removed, projectPath)
 		}
+		// For OpenClaw, also remove the references/ directory tree.
+		if agent.Name == "openclaw" {
+			refsDir := filepath.Join(filepath.Dir(projectPath), "references")
+			if _, err := os.Stat(refsDir); err == nil {
+				if err := os.RemoveAll(refsDir); err != nil {
+					errs = append(errs, fmt.Sprintf("failed to remove %s: %v", refsDir, err))
+				}
+			}
+		}
 	}
 
 	// Check global
@@ -298,6 +354,15 @@ func Uninstall(agent Agent, baseDir string) ([]string, error) {
 					errs = append(errs, fmt.Sprintf("failed to remove %s: %v", globalPath, err))
 				} else {
 					removed = append(removed, globalPath)
+				}
+				// For OpenClaw, also remove the references/ directory tree.
+				if agent.Name == "openclaw" {
+					refsDir := filepath.Join(filepath.Dir(globalPath), "references")
+					if _, err := os.Stat(refsDir); err == nil {
+						if err := os.RemoveAll(refsDir); err != nil {
+							errs = append(errs, fmt.Sprintf("failed to remove %s: %v", refsDir, err))
+						}
+					}
 				}
 			}
 		}
