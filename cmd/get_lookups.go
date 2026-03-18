@@ -7,6 +7,7 @@ import (
 
 	"github.com/dynatrace-oss/dtctl/pkg/client"
 	"github.com/dynatrace-oss/dtctl/pkg/exec"
+	"github.com/dynatrace-oss/dtctl/pkg/output"
 	"github.com/dynatrace-oss/dtctl/pkg/prompt"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/lookup"
 	"github.com/dynatrace-oss/dtctl/pkg/safety"
@@ -165,7 +166,7 @@ Examples:
 			return err
 		}
 
-		fmt.Printf("Lookup table %q deleted\n", path)
+		output.PrintSuccess("Lookup table %q deleted", path)
 		return nil
 	},
 }

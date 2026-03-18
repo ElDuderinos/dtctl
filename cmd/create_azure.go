@@ -197,7 +197,7 @@ Examples:
 func printFederatedCreateInstructions(baseURL, objectID, connectionName string) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
-		fmt.Printf("Warning: Could not parse base URL for instructions: %v\n", err)
+		output.PrintWarning("Could not parse base URL for instructions: %v", err)
 		return
 	}
 	host := u.Host

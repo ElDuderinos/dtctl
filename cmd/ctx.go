@@ -206,7 +206,7 @@ func useContext(name string) error {
 		return err
 	}
 
-	fmt.Printf("Switched to context %q\n", name)
+	output.PrintSuccess("Switched to context %q", name)
 	return nil
 }
 
@@ -303,7 +303,7 @@ func setContext(name, environment, tokenRef, safetyLevel, description string) er
 		return err
 	}
 
-	fmt.Printf("Context %q set\n", name)
+	output.PrintSuccess("Context %q set", name)
 	return nil
 }
 

@@ -477,7 +477,7 @@ Examples:
 			for _, docID := range args {
 				doc, err := handler.Get(docID)
 				if err != nil {
-					fmt.Printf("Warning: Could not get document %s: %v\n", docID, err)
+					output.PrintWarning("Could not get document %s: %v", docID, err)
 					docNames = append(docNames, docID)
 				} else {
 					docNames = append(docNames, fmt.Sprintf("%s %q", doc.Type, doc.Name))

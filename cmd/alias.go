@@ -67,7 +67,7 @@ var aliasSetCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Alias %q set to %q\n", name, expansion)
+		output.PrintSuccess("Alias %q set to %q", name, expansion)
 		return nil
 	},
 }
@@ -138,7 +138,7 @@ var aliasExportCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Exported %d alias(es) to %s\n", len(cfg.Aliases), file)
+		output.PrintSuccess("Exported %d alias(es) to %s", len(cfg.Aliases), file)
 		return nil
 	},
 }

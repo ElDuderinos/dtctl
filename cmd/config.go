@@ -258,9 +258,9 @@ var configSetCredentialsCmd = &cobra.Command{
 		}
 
 		if config.IsKeyringAvailable() {
-			fmt.Printf("Credentials %q stored securely in %s\n", name, config.KeyringBackend())
+			output.PrintSuccess("Credentials %q stored securely in %s", name, config.KeyringBackend())
 		} else {
-			fmt.Printf("Credentials %q set (warning: stored in plaintext, keyring not available)\n", name)
+			output.PrintWarning("Credentials %q set (stored in plaintext, keyring not available)", name)
 		}
 		return nil
 	},
@@ -296,7 +296,7 @@ Supported keys:
 			return err
 		}
 
-		fmt.Printf("Configuration %q set to %q\n", key, value)
+		output.PrintSuccess("Configuration %q set to %q", key, value)
 		return nil
 	},
 }
@@ -329,7 +329,7 @@ After migration, tokens are removed from the config file and stored securely.`,
 		}
 
 		if migrated == 0 {
-			fmt.Println("No tokens to migrate (already migrated or none configured)")
+			output.PrintInfo("No tokens to migrate (already migrated or none configured)")
 			return nil
 		}
 

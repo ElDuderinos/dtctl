@@ -221,9 +221,9 @@ you'll need to use API token authentication instead (dtctl config set-credential
 		oauthConfig := auth.OAuthConfigFromEnvironmentURLWithSafety(environment, safetyLevel)
 
 		// Log which environment we detected
-		fmt.Printf("Detected environment: %s\n", oauthConfig.Environment)
-		fmt.Printf("Safety level: %s\n", oauthConfig.SafetyLevel)
-		fmt.Printf("Requesting OAuth scopes for safety level %s...\n", oauthConfig.SafetyLevel)
+		output.PrintInfo("Detected environment: %s", oauthConfig.Environment)
+		output.PrintInfo("Safety level: %s", oauthConfig.SafetyLevel)
+		output.PrintInfo("Requesting OAuth scopes for safety level %s...", oauthConfig.SafetyLevel)
 
 		// Create OAuth flow
 		flow, err := auth.NewOAuthFlow(oauthConfig)
@@ -261,7 +261,7 @@ you'll need to use API token authentication instead (dtctl config set-credential
 			return fmt.Errorf("failed to store tokens: %w", err)
 		}
 
-		fmt.Printf("✓ Tokens stored securely as '%s'\n", tokenName)
+		output.PrintSuccess("Tokens stored securely as '%s'", tokenName)
 
 		// Create or update context with safety level
 		cfg.SetContextWithOptions(contextName, environment, tokenName, &config.ContextOptions{
@@ -274,8 +274,8 @@ you'll need to use API token authentication instead (dtctl config set-credential
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 
-		fmt.Printf("✓ Context '%s' configured and activated\n", contextName)
-		fmt.Println("\nYou can now use dtctl commands with this context.")
+		output.PrintSuccess("Context '%s' configured and activated", contextName)
+		output.PrintInfo("\nYou can now use dtctl commands with this context.")
 
 		return nil
 	},
@@ -423,7 +423,7 @@ to force a refresh.`,
 			return fmt.Errorf("failed to create token manager: %w", err)
 		}
 
-		fmt.Println("Refreshing OAuth tokens...")
+		output.PrintInfo("Refreshing OAuth tokens...")
 		tokens, err := tokenManager.RefreshToken(tokenName)
 		if err != nil {
 			return fmt.Errorf("failed to refresh tokens: %w", err)
