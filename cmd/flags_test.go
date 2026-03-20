@@ -21,7 +21,7 @@ func TestGlobalFlags(t *testing.T) {
 		{"verbose", "0"},
 		{"dry-run", "false"},
 		{"plain", "false"},
-		{"chunk-size", "0"},
+		{"chunk-size", "500"},
 	}
 
 	for _, tt := range tests {

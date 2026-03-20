@@ -312,8 +312,8 @@ func TestGlobalFlags_ChunkSize(t *testing.T) {
 	}{
 		{
 			name:      "default chunk size",
-			chunkSize: 0,
-			want:      0,
+			chunkSize: 500,
+			want:      500,
 		},
 		{
 			name:      "custom chunk size",
@@ -321,7 +321,7 @@ func TestGlobalFlags_ChunkSize(t *testing.T) {
 			want:      1000,
 		},
 		{
-			name:      "disabled chunking",
+			name:      "first page only",
 			chunkSize: 0,
 			want:      0,
 		},

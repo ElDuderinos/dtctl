@@ -480,7 +480,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&plainMode, "plain", false, "plain output for machine processing (no colors, no interactive prompts)")
 	rootCmd.PersistentFlags().BoolVarP(&agentMode, "agent", "A", false, "agent output mode: wrap output in a structured JSON envelope with metadata")
 	rootCmd.PersistentFlags().BoolVar(&noAgent, "no-agent", false, "disable auto-detected agent mode")
-	rootCmd.PersistentFlags().Int64Var(&chunkSize, "chunk-size", 0, "Paginate through all results in chunks of this size. 0 (default) returns only the first page.")
+	rootCmd.PersistentFlags().Int64Var(&chunkSize, "chunk-size", 500, "Paginate through all results in chunks of this size. 0 returns only the first page.")
 
 	// Bind flags to viper
 	_ = viper.BindPFlag("context", rootCmd.PersistentFlags().Lookup("context"))
