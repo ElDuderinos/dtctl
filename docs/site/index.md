@@ -16,9 +16,12 @@ title: Home
 
   <div class="install-box">
     <code><span class="prompt">$</span> brew install dynatrace-oss/tap/dtctl</code>
+    <br>
+    <code><span class="prompt">&gt;</span> irm https://raw.githubusercontent.com/dynatrace-oss/dtctl/main/install.ps1 | iex</code>
   </div>
 
   <div class="hero-buttons">
+    <a href="{{ '/docs/installation/' | relative_url }}" class="btn-primary">Installation</a>
     <a href="{{ '/docs/quick-start/' | relative_url }}" class="btn-primary">Get Started</a>
     <a href="https://github.com/dynatrace-oss/dtctl" class="btn-secondary">View on GitHub</a>
   </div>
@@ -149,7 +152,14 @@ dtctl exec copilot nl2dql "error logs from last hour"
 ```bash
 # Homebrew (macOS/Linux)
 brew install dynatrace-oss/tap/dtctl
+```
 
+```powershell
+# PowerShell (Windows)
+irm https://raw.githubusercontent.com/dynatrace-oss/dtctl/main/install.ps1 | iex
+```
+
+```bash
 # Binary download
 # https://github.com/dynatrace-oss/dtctl/releases/latest
 
