@@ -332,10 +332,9 @@ hr {
 
 .install-boxes {
   display: flex;
-  gap: 1rem;
-  justify-content: center;
-  flex-wrap: wrap;
-  max-width: 720px;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 640px;
   margin: 0 auto 2.5rem !important;
 }
 
@@ -344,8 +343,6 @@ hr {
   border: 1px solid var(--dt-border) !important;
   border-radius: 10px !important;
   padding: 0.9rem 1.5rem !important;
-  flex: 1;
-  min-width: 260px;
   font-family: var(--dt-mono) !important;
   font-size: 0.95rem;
   color: var(--dt-text);
@@ -741,7 +738,6 @@ hr {
 
   .install-box {
     font-size: 0.8rem;
-    min-width: 0;
   }
 
   .hero-buttons a {
