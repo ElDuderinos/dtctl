@@ -1,0 +1,20 @@
+metadata:
+  analysisTimeframe:
+    end: "2025-03-15T10:30:00.000000000Z"
+    start: "2025-03-15T08:30:00.000000000Z"
+  canonicalQuery: "fetch logs\n| limit 3\n| fields timestamp, host.name, status, content"
+  contributions:
+    buckets[#1]{matchedRecordsRatio,name,scannedBytes,table}:
+      1,default_logs,2982690,logs
+  dqlVersion: V1_0
+  executionTimeMilliseconds: 47
+  locale: und
+  query: "fetch logs | limit 3 | fields timestamp, host.name, status, content"
+  queryId: 27c4daf9-2619-4ba1-b1ad-9e276c75a351
+  scannedBytes: 2982690
+  scannedRecords: 42351
+  timezone: Z
+records[#3]{content,host.name,status,timestamp}:
+  Connection timeout to database,web-server-01,ERROR,"2025-03-15T10:30:00Z"
+  High memory usage detected,web-server-02,WARN,"2025-03-15T10:29:55Z"
+  Request processed successfully,api-gateway,INFO,"2025-03-15T10:29:50Z"

@@ -191,7 +191,7 @@ func TestLoadConfig(t *testing.T) {
 
 // TestGlobalFlags_Output tests the --output/-o flag
 func TestGlobalFlags_Output(t *testing.T) {
-	validFormats := []string{"json", "yaml", "csv", "table", "wide"}
+	validFormats := []string{"json", "yaml", "csv", "toon", "table", "wide"}
 
 	for _, format := range validFormats {
 		t.Run(format, func(t *testing.T) {

@@ -13,6 +13,18 @@ import (
 	"github.com/dynatrace-oss/dtctl/pkg/util/template"
 )
 
+// isSupportedVerifyQueryOutputFormat reports whether the given format string
+// is valid for the "verify query" command. Only structured serialisation
+// formats make sense here (the human-readable default is handled via "").
+func isSupportedVerifyQueryOutputFormat(format string) bool {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "table", "json", "yaml", "yml", "toon":
+		return true
+	default:
+		return false
+	}
+}
+
 // verifyQueryCmd represents the verify query subcommand
 var verifyQueryCmd = &cobra.Command{
 	Use:     "query [dql-string]",
@@ -67,9 +79,10 @@ Examples:
   # Verify with specific timezone and locale
   dtctl verify query "fetch logs" --timezone "Europe/Paris" --locale "fr_FR"
 
-  # Get structured output (JSON or YAML)
+  # Get structured output (JSON, YAML, or TOON)
   dtctl verify query "fetch logs" -o json
   dtctl verify query "fetch logs" -o yaml
+  dtctl verify query "fetch logs" -o toon
 
   # CI/CD: Fail on warnings (strict validation)
   dtctl verify query -f query.dql --fail-on-warn
@@ -108,6 +121,11 @@ Examples:
   fi
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		outputFmt, _ := cmd.Flags().GetString("output")
+		if !isSupportedVerifyQueryOutputFormat(outputFmt) {
+			return fmt.Errorf("unsupported output format %q for verify query (supported: json, yaml, toon)", outputFmt)
+		}
+
 		cfg, err := LoadConfig()
 		if err != nil {
 			return err
@@ -196,9 +214,7 @@ Examples:
 			return err
 		}
 
-		// Format output based on --output flag
-		outputFmt, _ := cmd.Flags().GetString("output")
-
+		// Format output based on --output flag (already validated above)
 		switch outputFmt {
 		case "json":
 			// Print full DQLVerifyResponse as JSON
@@ -211,6 +227,12 @@ Examples:
 			printer := output.NewPrinter("yaml")
 			if err := printer.Print(result); err != nil {
 				return fmt.Errorf("failed to print YAML output: %w", err)
+			}
+		case "toon":
+			// Print full DQLVerifyResponse as TOON
+			printer := output.NewPrinter("toon")
+			if err := printer.Print(result); err != nil {
+				return fmt.Errorf("failed to print TOON output: %w", err)
 			}
 		default:
 			// Default: human-readable format

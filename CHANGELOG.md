@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **TOON output for `query` and `verify query`** — `-o toon` is now accepted by `dtctl query` and `dtctl verify query`; previously the command-level format allowlists omitted `toon` even though the printer already supported it
+- **`verify query` format validation** — `dtctl verify query` now rejects unsupported output formats with a clear error instead of silently falling through to the human-readable default
+
 ## [0.20.0] - 2026-03-24
 
 ### Added

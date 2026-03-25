@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dynatrace-oss/dtctl/pkg/exec"
+	"github.com/dynatrace-oss/dtctl/pkg/output"
 )
 
 func TestFormatVerifyResultHuman_ValidQuery(t *testing.T) {
@@ -313,4 +314,72 @@ type testError struct {
 
 func (e *testError) Error() string {
 	return e.msg
+}
+
+func TestIsSupportedVerifyQueryOutputFormat(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+		want   bool
+	}{
+		{name: "empty default", format: "", want: true},
+		{name: "table", format: "table", want: true},
+		{name: "json", format: "json", want: true},
+		{name: "yaml", format: "yaml", want: true},
+		{name: "yml alias", format: "yml", want: true},
+		{name: "toon", format: "toon", want: true},
+		{name: "trimmed and mixed case", format: " Json ", want: true},
+		{name: "csv unsupported", format: "csv", want: false},
+		{name: "chart unsupported", format: "chart", want: false},
+		{name: "wide unsupported", format: "wide", want: false},
+		{name: "xml unsupported", format: "xml", want: false},
+		{name: "sparkline unsupported", format: "sparkline", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isSupportedVerifyQueryOutputFormat(tt.format)
+			if got != tt.want {
+				t.Errorf("isSupportedVerifyQueryOutputFormat(%q) = %v, want %v", tt.format, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVerifyQuery_StructuredOutputFormats(t *testing.T) {
+	result := &exec.DQLVerifyResponse{
+		Valid:          true,
+		CanonicalQuery: "fetch logs\n| limit 1000",
+		Notifications: []exec.MetadataNotification{
+			{
+				Severity:         "INFO",
+				NotificationType: "LIMIT_ADDED",
+				Message:          "Added a limit to protect resources",
+			},
+		},
+	}
+
+	formats := []struct {
+		name   string
+		format string
+		expect string // substring to look for in output
+	}{
+		{name: "json", format: "json", expect: `"valid"`},
+		{name: "yaml", format: "yaml", expect: "valid:"},
+		{name: "toon", format: "toon", expect: "valid"},
+	}
+
+	for _, tt := range formats {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			printer := output.NewPrinterWithWriter(tt.format, &buf)
+			if err := printer.Print(result); err != nil {
+				t.Fatalf("Print(%s) failed: %v", tt.format, err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, tt.expect) {
+				t.Errorf("expected %s output to contain %q, got:\n%s", tt.format, tt.expect, out)
+			}
+		})
+	}
 }

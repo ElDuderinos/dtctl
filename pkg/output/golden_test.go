@@ -1556,6 +1556,38 @@ func TestGolden_QueryDQL_Metadata_CSV(t *testing.T) {
 	})
 }
 
+func TestGolden_QueryDQL_Metadata_TOON(t *testing.T) {
+	records := dqlRecordsFixture()
+	meta := metadataFixture()
+
+	t.Run("all", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"records":  records,
+			"metadata": MetadataToMap(meta, []string{"all"}),
+		}
+		var buf bytes.Buffer
+		printer := NewPrinterWithWriter("toon", &buf)
+		if err := printer.Print(payload); err != nil {
+			t.Fatalf("Print failed: %v", err)
+		}
+		assertGolden(t, "query/dql-metadata-toon", buf.String())
+	})
+
+	t.Run("filtered", func(t *testing.T) {
+		fields := []string{"executionTimeMilliseconds", "scannedRecords", "scannedDataPoints", "sampled", "queryId"}
+		payload := map[string]interface{}{
+			"records":  records,
+			"metadata": MetadataToMap(meta, fields),
+		}
+		var buf bytes.Buffer
+		printer := NewPrinterWithWriter("toon", &buf)
+		if err := printer.Print(payload); err != nil {
+			t.Fatalf("Print failed: %v", err)
+		}
+		assertGolden(t, "query/dql-metadata-filtered-toon", buf.String())
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Golden tests: empty results
 // ---------------------------------------------------------------------------

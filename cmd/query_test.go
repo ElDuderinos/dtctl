@@ -15,6 +15,7 @@ func TestIsSupportedQueryOutputFormat(t *testing.T) {
 		{name: "spark alias", format: "spark", want: true},
 		{name: "bar alias", format: "bar", want: true},
 		{name: "braille alias", format: "br", want: true},
+		{name: "toon", format: "toon", want: true},
 		{name: "trimmed and mixed case", format: " Json ", want: true},
 		{name: "unsupported", format: "xml", want: false},
 	}

@@ -37,7 +37,7 @@ func isStderrTerminal() bool {
 
 func isSupportedQueryOutputFormat(format string) bool {
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "", "table", "wide", "json", "yaml", "yml", "csv", "chart", "sparkline", "spark", "barchart", "bar", "braille", "br":
+	case "", "table", "wide", "json", "yaml", "yml", "csv", "toon", "chart", "sparkline", "spark", "barchart", "bar", "braille", "br":
 		return true
 	default:
 		return false
