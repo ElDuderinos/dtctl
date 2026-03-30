@@ -129,7 +129,31 @@ dtctl query "fetch logs | limit 10" --segment seg-1 --segment seg-2
 dtctl query "fetch logs | limit 10" -S my-segment-uid
 ```
 
-For segments that require variable bindings, use a YAML file:
+### Segment Variables
+
+Some segments require variable bindings (e.g., a ready-made `k8s.namespace.name` segment needs a namespace value). Use `--segment-var` / `-V` to bind variables inline:
+
+```bash
+# Bind a single variable
+dtctl query "fetch logs | limit 10" -S my-segment -V "my-segment:host=HOST-001"
+
+# Multiple values for a variable (comma-separated)
+dtctl query "fetch logs | limit 10" -S my-segment -V "my-segment:host=HOST-001,HOST-002"
+
+# Multiple variables on one segment
+dtctl query "fetch logs | limit 10" -S my-segment \
+  -V "my-segment:host=HOST-001" \
+  -V "my-segment:ns=production"
+
+# Works with segment names (resolved before variable binding)
+dtctl query "fetch logs | limit 10" \
+  -S "[READY-MADE] k8s.namespace.name" \
+  -V "[READY-MADE] k8s.namespace.name:k8s.namespace.name=astroshop"
+```
+
+The format for `--segment-var` is `SEGMENT:VARIABLE=VALUE[,VALUE,...]` where `SEGMENT` matches the value you passed to `--segment` (either a UID or a name).
+
+For complex multi-segment configurations with many variables, use a YAML file:
 
 ```bash
 dtctl query "fetch logs | limit 10" --segments-file segments.yaml
@@ -150,7 +174,7 @@ dtctl query "fetch logs | limit 10" --segments-file segments.yaml
       values: [production, staging]
 ```
 
-Both `--segment` and `--segments-file` can be combined. If the same segment ID appears in both, the file entry wins (it may carry variables). A maximum of 10 segments per query is enforced client-side.
+Both `--segment` and `--segments-file` can be combined. If the same segment ID appears in both, the file entry wins (it may carry variables). Variables from `--segment-var` take precedence over file variables for the same name. A maximum of 10 segments per query is enforced client-side.
 
 ## Additional Parameters
 

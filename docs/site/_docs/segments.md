@@ -112,7 +112,13 @@ dtctl query "fetch logs | limit 10" --segment my-segment-uid
 # Apply multiple segments (AND-combined per Grail semantics)
 dtctl query "fetch logs | limit 10" --segment seg-1 --segment seg-2
 
-# Use a YAML file for segments with variables
+# Bind variables inline with --segment-var
+dtctl query "fetch logs | limit 10" -S my-segment -V "my-segment:host=HOST-001"
+
+# Multiple values for a variable
+dtctl query "fetch logs | limit 10" -S my-segment -V "my-segment:host=HOST-001,HOST-002"
+
+# Use a YAML file for complex cases
 dtctl query "fetch logs | limit 10" --segments-file segments.yaml
 
 # By name (resolved via API)

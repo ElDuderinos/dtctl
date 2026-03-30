@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dynatrace-oss/dtctl/pkg/exec"
@@ -274,5 +275,272 @@ func TestMergeSegmentRefs_FileWinsWithVariables(t *testing.T) {
 	}
 	if got[0].Variables[0].Name != "host" {
 		t.Errorf("variable name = %q, want %q", got[0].Variables[0].Name, "host")
+	}
+}
+
+func TestParseSegmentVarFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []string
+		want    map[string][]exec.FilterSegmentVariable
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:  "single variable single value",
+			input: []string{"seg-1:host=HOST-001"},
+			want: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "host", Values: []string{"HOST-001"}}},
+			},
+		},
+		{
+			name:  "single variable multiple values",
+			input: []string{"seg-1:host=HOST-001,HOST-002"},
+			want: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "host", Values: []string{"HOST-001", "HOST-002"}}},
+			},
+		},
+		{
+			name:  "multiple variables same segment",
+			input: []string{"seg-1:host=HOST-001", "seg-1:ns=production"},
+			want: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {
+					{Name: "host", Values: []string{"HOST-001"}},
+					{Name: "ns", Values: []string{"production"}},
+				},
+			},
+		},
+		{
+			name:  "multiple segments",
+			input: []string{"seg-1:host=HOST-001", "seg-2:env=prod"},
+			want: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "host", Values: []string{"HOST-001"}}},
+				"seg-2": {{Name: "env", Values: []string{"prod"}}},
+			},
+		},
+		{
+			name:  "duplicate variable name merges values",
+			input: []string{"seg-1:host=HOST-001", "seg-1:host=HOST-002"},
+			want: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "host", Values: []string{"HOST-001", "HOST-002"}}},
+			},
+		},
+		{
+			name:  "trims whitespace",
+			input: []string{"  seg-1 : host = HOST-001 "},
+			want: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "host", Values: []string{"HOST-001"}}},
+			},
+		},
+		{
+			name:  "value containing equals sign",
+			input: []string{"seg-1:filter=a=b"},
+			want: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "filter", Values: []string{"a=b"}}},
+			},
+		},
+		{
+			name:    "empty string rejected",
+			input:   []string{""},
+			wantErr: true,
+			errMsg:  "must not be empty",
+		},
+		{
+			name:    "missing colon rejected",
+			input:   []string{"seg-1-host=value"},
+			wantErr: true,
+			errMsg:  "expected format",
+		},
+		{
+			name:    "missing equals rejected",
+			input:   []string{"seg-1:hostvalue"},
+			wantErr: true,
+			errMsg:  "expected VARIABLE=VALUE",
+		},
+		{
+			name:    "empty segment ID rejected",
+			input:   []string{":host=value"},
+			wantErr: true,
+			errMsg:  "segment ID must not be empty",
+		},
+		{
+			name:    "empty variable name rejected",
+			input:   []string{"seg-1:=value"},
+			wantErr: true,
+			errMsg:  "variable name must not be empty",
+		},
+		{
+			name:    "empty value rejected",
+			input:   []string{"seg-1:host="},
+			wantErr: true,
+			errMsg:  "variable value must not be empty",
+		},
+		{
+			name:  "empty slice",
+			input: []string{},
+			want:  map[string][]exec.FilterSegmentVariable{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseSegmentVarFlags(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseSegmentVarFlags() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+				}
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseSegmentVarFlags() got %d segments, want %d", len(got), len(tt.want))
+			}
+			for segID, wantVars := range tt.want {
+				gotVars, ok := got[segID]
+				if !ok {
+					t.Fatalf("missing segment %q in result", segID)
+				}
+				if len(gotVars) != len(wantVars) {
+					t.Fatalf("segment %q: got %d vars, want %d", segID, len(gotVars), len(wantVars))
+				}
+				for i := range wantVars {
+					if gotVars[i].Name != wantVars[i].Name {
+						t.Errorf("segment %q var[%d].Name = %q, want %q", segID, i, gotVars[i].Name, wantVars[i].Name)
+					}
+					if len(gotVars[i].Values) != len(wantVars[i].Values) {
+						t.Errorf("segment %q var[%d] has %d values, want %d", segID, i, len(gotVars[i].Values), len(wantVars[i].Values))
+						continue
+					}
+					for j := range wantVars[i].Values {
+						if gotVars[i].Values[j] != wantVars[i].Values[j] {
+							t.Errorf("segment %q var[%d].Values[%d] = %q, want %q", segID, i, j, gotVars[i].Values[j], wantVars[i].Values[j])
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestApplySegmentVars(t *testing.T) {
+	tests := []struct {
+		name    string
+		refs    []exec.FilterSegmentRef
+		varMap  map[string][]exec.FilterSegmentVariable
+		origIDs map[string]string
+		wantErr bool
+		errMsg  string
+		check   func(t *testing.T, refs []exec.FilterSegmentRef)
+	}{
+		{
+			name:   "no vars is a no-op",
+			refs:   []exec.FilterSegmentRef{{ID: "seg-1"}},
+			varMap: nil,
+			check: func(t *testing.T, refs []exec.FilterSegmentRef) {
+				if len(refs[0].Variables) != 0 {
+					t.Errorf("expected no variables, got %d", len(refs[0].Variables))
+				}
+			},
+		},
+		{
+			name: "applies variable by resolved ID",
+			refs: []exec.FilterSegmentRef{{ID: "resolved-uid"}},
+			varMap: map[string][]exec.FilterSegmentVariable{
+				"resolved-uid": {{Name: "host", Values: []string{"H1"}}},
+			},
+			origIDs: map[string]string{"resolved-uid": "My Segment"},
+			check: func(t *testing.T, refs []exec.FilterSegmentRef) {
+				if len(refs[0].Variables) != 1 {
+					t.Fatalf("expected 1 variable, got %d", len(refs[0].Variables))
+				}
+				if refs[0].Variables[0].Name != "host" {
+					t.Errorf("variable name = %q, want %q", refs[0].Variables[0].Name, "host")
+				}
+			},
+		},
+		{
+			name: "applies variable by original name",
+			refs: []exec.FilterSegmentRef{{ID: "resolved-uid"}},
+			varMap: map[string][]exec.FilterSegmentVariable{
+				"My Segment": {{Name: "host", Values: []string{"H1"}}},
+			},
+			origIDs: map[string]string{"resolved-uid": "My Segment"},
+			check: func(t *testing.T, refs []exec.FilterSegmentRef) {
+				if len(refs[0].Variables) != 1 {
+					t.Fatalf("expected 1 variable, got %d", len(refs[0].Variables))
+				}
+			},
+		},
+		{
+			name: "CLI vars override file vars for same name",
+			refs: []exec.FilterSegmentRef{
+				{ID: "seg-1", Variables: []exec.FilterSegmentVariable{
+					{Name: "host", Values: []string{"OLD"}},
+				}},
+			},
+			varMap: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "host", Values: []string{"NEW"}}},
+			},
+			origIDs: map[string]string{},
+			check: func(t *testing.T, refs []exec.FilterSegmentRef) {
+				if len(refs[0].Variables) != 1 {
+					t.Fatalf("expected 1 variable, got %d", len(refs[0].Variables))
+				}
+				if refs[0].Variables[0].Values[0] != "NEW" {
+					t.Errorf("expected CLI value to override, got %q", refs[0].Variables[0].Values[0])
+				}
+			},
+		},
+		{
+			name: "adds new variables alongside existing ones",
+			refs: []exec.FilterSegmentRef{
+				{ID: "seg-1", Variables: []exec.FilterSegmentVariable{
+					{Name: "host", Values: []string{"H1"}},
+				}},
+			},
+			varMap: map[string][]exec.FilterSegmentVariable{
+				"seg-1": {{Name: "ns", Values: []string{"prod"}}},
+			},
+			origIDs: map[string]string{},
+			check: func(t *testing.T, refs []exec.FilterSegmentRef) {
+				if len(refs[0].Variables) != 2 {
+					t.Fatalf("expected 2 variables, got %d", len(refs[0].Variables))
+				}
+			},
+		},
+		{
+			name: "error on unknown segment",
+			refs: []exec.FilterSegmentRef{{ID: "seg-1"}},
+			varMap: map[string][]exec.FilterSegmentVariable{
+				"nonexistent": {{Name: "host", Values: []string{"H1"}}},
+			},
+			origIDs: map[string]string{},
+			wantErr: true,
+			errMsg:  "not specified via --segment",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origIDs := tt.origIDs
+			if origIDs == nil {
+				origIDs = map[string]string{}
+			}
+			got, err := applySegmentVars(tt.refs, tt.varMap, origIDs)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("applySegmentVars() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+				}
+				return
+			}
+			if tt.check != nil {
+				tt.check(t, got)
+			}
+		})
 	}
 }

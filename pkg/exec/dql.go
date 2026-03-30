@@ -323,10 +323,61 @@ func (e *DQLExecutor) ExecuteQueryWithOptions(query string, opts DQLExecuteOptio
 			return nil, err
 		}
 	} else if resp.IsError() {
-		return nil, fmt.Errorf("query failed with status %d: %s", resp.StatusCode(), resp.String())
+		return nil, enhanceQueryError(resp.StatusCode(), resp.Body())
 	}
 
 	return &result, nil
+}
+
+// dqlErrorResponse represents the structured error response from the DQL query API.
+type dqlErrorResponse struct {
+	Error struct {
+		Message string `json:"message"`
+		Details struct {
+			ErrorType    string   `json:"errorType"`
+			ErrorMessage string   `json:"errorMessage"`
+			Arguments    []string `json:"arguments"`
+		} `json:"details"`
+	} `json:"error"`
+}
+
+// enhanceQueryError parses the API error response and produces helpful messages
+// for known error types, falling back to the raw response for unknown errors.
+func enhanceQueryError(statusCode int, body []byte) error {
+	var apiErr dqlErrorResponse
+	if err := json.Unmarshal(body, &apiErr); err == nil {
+		if apiErr.Error.Details.ErrorType == "FILTER_SEGMENT_REQUIRES_VARIABLE" {
+			return formatSegmentVariableError(apiErr)
+		}
+	}
+	return fmt.Errorf("query failed with status %d: %s", statusCode, string(body))
+}
+
+// formatSegmentVariableError produces a helpful error message when a segment
+// requires variable bindings, including ready-to-use --segment-var and --segments-file examples.
+func formatSegmentVariableError(apiErr dqlErrorResponse) error {
+	args := apiErr.Error.Details.Arguments
+	// Arguments: ["`<segmentID>`", "`<dataObject>`", "$<variableName>"]
+	segmentID := "unknown"
+	variableName := "unknown"
+	if len(args) >= 1 {
+		segmentID = strings.Trim(args[0], "`")
+	}
+	if len(args) >= 3 {
+		variableName = strings.TrimPrefix(args[2], "$")
+	}
+
+	return fmt.Errorf("segment %s requires variable %q\n\n"+
+		"Bind the variable inline with --segment-var:\n\n"+
+		"  dtctl query \"...\" -S %s -V \"%s:%s=your-value-here\"\n\n"+
+		"Or use --segments-file with a YAML file for complex cases:\n\n"+
+		"  # segments.yaml\n"+
+		"  - id: %s\n"+
+		"    variables:\n"+
+		"      - name: %s\n"+
+		"        values: [\"your-value-here\"]\n\n"+
+		"  dtctl query \"...\" --segments-file segments.yaml",
+		segmentID, variableName, segmentID, segmentID, variableName, segmentID, variableName)
 }
 
 // VerifyQuery verifies a DQL query without executing it

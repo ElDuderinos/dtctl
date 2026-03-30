@@ -220,7 +220,7 @@ if len(opts.Segments) > 0 {
 
 ### 2.2 CLI Flags — `cmd/query.go`
 
-Two new flags:
+Three new flags:
 
 #### `--segment` / `-S` (repeatable string array)
 
@@ -261,9 +261,35 @@ dtctl query "fetch logs | limit 10" --segments-file segments.yaml
       values: [production, staging]
 ```
 
-#### Combining `--segment` and `--segments-file`
+#### `--segment-var` / `-V` (repeatable string array)
 
-Both flags can be used together. IDs from `--segment` are appended as variable-less entries. If the same segment ID appears in both, the `--segments-file` entry wins (it may carry variables). Duplicates by ID are deduplicated.
+Binds variable values to segments directly from the CLI, without needing a YAML file. Format: `SEGMENT:VARIABLE=VALUE[,VALUE,...]`
+
+```bash
+# Bind a single variable to a segment (by UID)
+dtctl query "fetch logs" -S abc123 -V "abc123:host=HOST-001"
+
+# Bind a variable to a segment by name (resolved via API)
+dtctl query "fetch logs" -S "my-k8s-segment" -V "my-k8s-segment:ns=production"
+
+# Multiple values for one variable (comma-separated)
+dtctl query "fetch logs" -S abc123 -V "abc123:ns=production,staging"
+
+# Multiple variables on the same segment
+dtctl query "fetch logs" -S abc123 -V "abc123:host=HOST-001" -V "abc123:ns=prod"
+```
+
+**Parsing rules:**
+- The first `:` separates the segment identifier from the variable binding
+- The first `=` after the `:` separates the variable name from the values
+- Multiple values are comma-separated
+- Leading/trailing whitespace is trimmed from the segment, variable name, and each value
+- Requires `--segment` or `--segments-file` to also be specified (error otherwise)
+- Variable bindings from `--segment-var` override any variables with the same name from `--segments-file`
+
+#### Combining `--segment`, `--segments-file`, and `--segment-var`
+
+All three flags can be used together. IDs from `--segment` are appended as variable-less entries. If the same segment ID appears in both `--segment` and `--segments-file`, the `--segments-file` entry wins (it may carry variables). Duplicates by ID are deduplicated. Variables from `--segment-var` are then applied on top, overriding any file-based variable of the same name.
 
 #### Validation
 
@@ -310,9 +336,10 @@ When segments are used, the agent output envelope's `context` should reflect the
 | Primary noun | `segment` / `segments` | Matches Dynatrace user-facing terminology. `filter-segment` kept as alias only. |
 | Short alias | `seg` | Concise, unambiguous. |
 | Query flag name | `--segment` / `-S` (repeatable) | `-s` conflicts with common flags. Repeatable is more shell-friendly than comma-separated (avoids quoting issues). |
+| Variable flag name | `--segment-var` / `-V` (repeatable) | Binds variables inline without needing a YAML file. `SEGMENT:VARIABLE=VALUE` format is unambiguous since segment IDs/names don't contain colons. |
 | File flag name | `--segments-file` | Distinct from `--segment` to avoid confusion. Matches the issue's proposed UX. |
 | Segment identification | UID-based with name resolution | Segments are UID-identified in the API. Name resolution (like workflows, documents) gives users convenience. |
-| Combining flags | `--segment` + `--segments-file` merge | Power users can mix simple and complex cases. File entries win on ID conflict. |
+| Combining flags | `--segment` + `--segments-file` + `--segment-var` merge | Power users can mix simple and complex cases. File entries win on ID conflict. `--segment-var` overrides file-based variables of the same name. |
 | Max segments check | Client-side, 10 per query | Matches documented limit. Better UX than an opaque server-side 400 error. |
 | Package location | `pkg/resources/segment/` | Per-resource package convention (not `grail/` which would mix multiple resources). |
 
@@ -362,10 +389,13 @@ When segments are used, the agent output envelope's `context` should reflect the
 | 4 | Wire segment options in ExecuteQueryWithOptions | `pkg/exec/dql.go` |
 | 5 | Add `--segment` / `-S` repeatable flag | `cmd/query.go` |
 | 6 | Add `--segments-file` flag | `cmd/query.go` |
-| 7 | Implement segment parsing (YAML + merge + dedup) | `cmd/query.go` |
-| 8 | Add client-side validation (max 10, no empty IDs) | `cmd/query.go` |
-| 9 | Add unit tests for segment parsing and merging | `cmd/query_test.go` |
-| 10 | Add shell completion for `--segment` | `cmd/query.go` |
+| 7 | Add `--segment-var` / `-V` repeatable flag | `cmd/query.go` |
+| 8 | Implement segment parsing (YAML + merge + dedup) | `cmd/query.go` |
+| 9 | Implement segment variable parsing and application | `cmd/query.go` |
+| 10 | Add client-side validation (max 10, no empty IDs) | `cmd/query.go` |
+| 11 | Add enhanced error messages for missing variables | `pkg/exec/dql.go` |
+| 12 | Add unit tests for segment parsing, merging, and variables | `cmd/query_test.go`, `pkg/exec/dql_test.go` |
+| 13 | Add shell completion for `--segment` | `cmd/query.go` |
 
 ### Phase 4: Integration & Polish
 
@@ -402,9 +432,9 @@ When segments are used, the agent output envelope's `context` should reflect the
 
 | File | Change |
 |------|--------|
-| `pkg/exec/dql.go` | Add FilterSegmentRef types, FilterSegments field in request + options |
-| `cmd/query.go` | Add `--segment` / `-S`, `--segments-file` flags + parsing/validation |
-| `cmd/query_test.go` | Tests for segment flag parsing and merging |
+| `pkg/exec/dql.go` | Add FilterSegmentRef types, FilterSegments field in request + options, enhanced error messages for missing segment variables |
+| `cmd/query.go` | Add `--segment` / `-S`, `--segments-file`, `--segment-var` / `-V` flags + parsing/validation |
+| `cmd/query_test.go` | Tests for segment flag parsing, merging, and variable binding |
 | `cmd/get.go` | Register getSegmentsCmd, deleteSegmentCmd |
 | `cmd/describe.go` | Register describeSegmentCmd |
 | `cmd/create.go` | Register createSegmentCmd |
