@@ -10,6 +10,7 @@ import (
 
 	"github.com/dynatrace-oss/dtctl/pkg/client"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/document"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/segment"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/workflow"
 )
 
@@ -670,5 +671,157 @@ func TestAmbiguousNameError(t *testing.T) {
 	// Check helpful message
 	if !strings.Contains(errMsg, "use the exact ID") {
 		t.Errorf("Error should contain helpful message about using exact ID, got: %v", errMsg)
+	}
+}
+
+func TestLooksLikeID_SegmentNeverMatchesAsID(t *testing.T) {
+	r := &Resolver{}
+
+	// Segment UIDs are short alphanumeric strings — should never be treated as IDs
+	tests := []struct {
+		name       string
+		identifier string
+	}{
+		{"short alphanumeric UID", "4lpVjcpcsjd"},
+		{"another segment UID", "VLSFwcHqVlB"},
+		{"UUID-like string", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+		{"segment name", "My Segment"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if r.looksLikeID(tt.identifier, TypeSegment) {
+				t.Errorf("looksLikeID() should return false for segments (identifier=%q), but returned true", tt.identifier)
+			}
+		})
+	}
+}
+
+func newSegmentMockServer(t *testing.T, segments []segment.FilterSegment) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/platform/storage/filter-segments/v1/filter-segments" {
+			t.Errorf("Unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(segment.FilterSegmentList{
+			FilterSegments: segments,
+			TotalCount:     len(segments),
+		})
+	}))
+}
+
+func TestResolveID_SegmentByUID(t *testing.T) {
+	server := newSegmentMockServer(t, []segment.FilterSegment{
+		{UID: "4lpVjcpcsjd", Name: "Astroshop - Small"},
+		{UID: "WyAl8Sapu4Z", Name: "Astroshop"},
+	})
+	defer server.Close()
+
+	c, err := client.NewForTesting(server.URL, "test-token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	res := NewResolver(c)
+
+	id, err := res.ResolveID(TypeSegment, "4lpVjcpcsjd")
+	if err != nil {
+		t.Fatalf("ResolveID() error = %v", err)
+	}
+	if id != "4lpVjcpcsjd" {
+		t.Errorf("ResolveID() = %q, want %q", id, "4lpVjcpcsjd")
+	}
+}
+
+func TestResolveID_SegmentByName_SingleMatch(t *testing.T) {
+	server := newSegmentMockServer(t, []segment.FilterSegment{
+		{UID: "4lpVjcpcsjd", Name: "Astroshop - Small"},
+		{UID: "I1cTXkHjZSL", Name: "Astroshop - Full"},
+		{UID: "ZixojzxNvKY", Name: "Stocks"},
+	})
+	defer server.Close()
+
+	c, err := client.NewForTesting(server.URL, "test-token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	res := NewResolver(c)
+
+	id, err := res.ResolveID(TypeSegment, "Stocks")
+	if err != nil {
+		t.Fatalf("ResolveID() error = %v", err)
+	}
+	if id != "ZixojzxNvKY" {
+		t.Errorf("ResolveID() = %q, want %q", id, "ZixojzxNvKY")
+	}
+}
+
+func TestResolveID_SegmentByName_AmbiguousMatch(t *testing.T) {
+	server := newSegmentMockServer(t, []segment.FilterSegment{
+		{UID: "4lpVjcpcsjd", Name: "Astroshop - Small"},
+		{UID: "I1cTXkHjZSL", Name: "Astroshop - Full"},
+	})
+	defer server.Close()
+
+	c, err := client.NewForTesting(server.URL, "test-token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	res := NewResolver(c)
+
+	_, err = res.ResolveID(TypeSegment, "Astroshop")
+	if err == nil {
+		t.Fatal("ResolveID() should return error for ambiguous name")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("error should mention 'ambiguous', got: %v", err)
+	}
+}
+
+func TestResolveID_SegmentByName_NoMatch(t *testing.T) {
+	server := newSegmentMockServer(t, []segment.FilterSegment{
+		{UID: "4lpVjcpcsjd", Name: "Astroshop - Small"},
+	})
+	defer server.Close()
+
+	c, err := client.NewForTesting(server.URL, "test-token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	res := NewResolver(c)
+
+	_, err = res.ResolveID(TypeSegment, "NonExistent")
+	if err == nil {
+		t.Fatal("ResolveID() should return error when no matches found")
+	}
+	if !strings.Contains(err.Error(), "no segment found") {
+		t.Errorf("error should mention 'no segment found', got: %v", err)
+	}
+}
+
+func TestResolveID_SegmentUID_PriorityOverName(t *testing.T) {
+	// If a segment's UID matches the input exactly, it should be returned
+	// even if another segment's name also contains the input as a substring.
+	server := newSegmentMockServer(t, []segment.FilterSegment{
+		{UID: "Stocks", Name: "Some Other Segment"},    // UID happens to look like a name
+		{UID: "ZixojzxNvKY", Name: "Stocks Portfolio"}, // Name contains "Stocks"
+	})
+	defer server.Close()
+
+	c, err := client.NewForTesting(server.URL, "test-token")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	res := NewResolver(c)
+
+	id, err := res.ResolveID(TypeSegment, "Stocks")
+	if err != nil {
+		t.Fatalf("ResolveID() error = %v", err)
+	}
+	// Should match the exact UID, not the name substring
+	if id != "Stocks" {
+		t.Errorf("ResolveID() = %q, want %q (exact UID match should take priority)", id, "Stocks")
 	}
 }
