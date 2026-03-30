@@ -82,3 +82,8 @@ type ExtensionConfigApplyResult struct {
 	ExtensionName   string `json:"extensionName,omitempty" yaml:"extensionName,omitempty" table:"EXTENSION"`
 	Scope           string `json:"scope,omitempty"         yaml:"scope,omitempty"         table:"SCOPE"`
 }
+
+// SegmentApplyResult is the result of applying a filter segment.
+type SegmentApplyResult struct {
+	ApplyResultBase `yaml:",inline"`
+}

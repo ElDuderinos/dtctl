@@ -14,6 +14,7 @@ import (
 	"github.com/dynatrace-oss/dtctl/pkg/resources/edgeconnect"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/extension"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/lookup"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/segment"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/settings"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/slo"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/workflow"
@@ -202,6 +203,15 @@ func (c *CleanupTracker) deleteResource(resource Resource) error {
 		}
 		return err
 
+	case "segment":
+		handler := segment.NewHandler(c.client)
+		err := handler.Delete(resource.ID)
+		// Ignore 404 errors - resource already deleted is OK
+		if err != nil && isNotFoundError(err) {
+			return nil
+		}
+		return err
+
 	case "extension-config":
 		handler := extension.NewHandler(c.client)
 		err := handler.DeleteMonitoringConfiguration(resource.ExtensionName, resource.ID)
@@ -301,6 +311,15 @@ func (c *CleanupTracker) verifyDeletion(resource Resource) error {
 			return nil
 		}
 		return fmt.Errorf("lookup %s still exists after deletion", resource.ID)
+
+	case "segment":
+		handler := segment.NewHandler(c.client)
+		_, err := handler.Get(resource.ID)
+		if err != nil {
+			// We expect an error (404) - this is success
+			return nil
+		}
+		return fmt.Errorf("segment %s still exists after deletion", resource.ID)
 
 	case "extension-config":
 		handler := extension.NewHandler(c.client)

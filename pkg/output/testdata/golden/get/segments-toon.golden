@@ -1,0 +1,31 @@
+[#3]:
+  - allowedOperations[#3]: READ,WRITE,DELETE
+    description: Filters data for Kubernetes cluster alpha
+    includes[#2]{dataObject,filter}:
+      _all_data_object,"k8s.cluster.name = \"alpha\""
+      logs,"dt.system.bucket = \"custom-logs\""
+    isPublic: true
+    name: Kubernetes Alpha
+    owner: admin@example.invalid
+    uid: a1b2c3d4-e5f6-4a7b-8c9d-seg000000001
+    variables:
+      type: query
+      value: fetch logs | limit 1
+    version: 3
+  - allowedOperations[#1]: READ
+    description: All production microservices
+    includes[#1]{dataObject,filter}:
+      spans,"environment = \"production\""
+    isPublic: false
+    name: Production Services
+    owner: platform-team@example.invalid
+    uid: b2c3d4e5-f6a7-4b8c-9d0e-seg000000002
+    version: 1
+  - allowedOperations[#3]: READ,WRITE,DELETE
+    includes[#1]{dataObject,filter}:
+      logs,"status = \"ERROR\""
+    isPublic: true
+    name: Error Logs
+    owner: sre-team@example.invalid
+    uid: c3d4e5f6-a7b8-4c9d-0e1f-seg000000003
+    version: 7

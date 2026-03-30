@@ -19,6 +19,7 @@ import (
 	"github.com/dynatrace-oss/dtctl/pkg/resources/gcpconnection"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/gcpmonitoringconfig"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/iam"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/segment"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/settings"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/slo"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/workflow"
@@ -367,6 +368,56 @@ func extensionVersionFixtures() []extension.ExtensionVersion {
 	}
 }
 
+func segmentFixtures() []segment.FilterSegment {
+	return []segment.FilterSegment{
+		{
+			UID:         "a1b2c3d4-e5f6-4a7b-8c9d-seg000000001",
+			Name:        "Kubernetes Alpha",
+			Description: "Filters data for Kubernetes cluster alpha",
+			IsPublic:    true,
+			Owner:       "admin@example.invalid",
+			Version:     3,
+			Includes: []segment.Include{
+				{DataObject: "_all_data_object", Filter: `k8s.cluster.name = "alpha"`},
+				{DataObject: "logs", Filter: `dt.system.bucket = "custom-logs"`},
+			},
+			Variables: &segment.Variables{
+				Type:  "query",
+				Value: `fetch logs | limit 1`,
+			},
+			VariablesDisplay:  "Yes",
+			AllowedOperations: []string{"READ", "WRITE", "DELETE"},
+		},
+		{
+			UID:         "b2c3d4e5-f6a7-4b8c-9d0e-seg000000002",
+			Name:        "Production Services",
+			Description: "All production microservices",
+			IsPublic:    false,
+			Owner:       "platform-team@example.invalid",
+			Version:     1,
+			Includes: []segment.Include{
+				{DataObject: "spans", Filter: `environment = "production"`},
+			},
+			AllowedOperations: []string{"READ"},
+		},
+		{
+			UID:      "c3d4e5f6-a7b8-4c9d-0e1f-seg000000003",
+			Name:     "Error Logs",
+			IsPublic: true,
+			Owner:    "sre-team@example.invalid",
+			Version:  7,
+			Includes: []segment.Include{
+				{DataObject: "logs", Filter: `status = "ERROR"`},
+			},
+			AllowedOperations: []string{"READ", "WRITE", "DELETE"},
+		},
+	}
+}
+
+func describeSegmentFixture() segment.FilterSegment {
+	return segmentFixtures()[0]
+}
+
 func monitoringConfigFixtures() []extension.MonitoringConfiguration {
 	return []extension.MonitoringConfiguration{
 		{
@@ -659,6 +710,30 @@ func TestGolden_GetExecutions(t *testing.T) {
 				t.Fatalf("PrintList failed: %v", err)
 			}
 			assertGolden(t, "get/executions-"+name, buf.String())
+		})
+	}
+}
+
+func TestGolden_GetSegments(t *testing.T) {
+	segments := segmentFixtures()
+
+	formats := map[string]string{
+		"table": "table",
+		"wide":  "wide",
+		"json":  "json",
+		"yaml":  "yaml",
+		"csv":   "csv",
+		"toon":  "toon",
+	}
+
+	for name, format := range formats {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			printer := NewPrinterWithWriter(format, &buf)
+			if err := printer.PrintList(segments); err != nil {
+				t.Fatalf("PrintList failed: %v", err)
+			}
+			assertGolden(t, "get/segments-"+name, buf.String())
 		})
 	}
 }
@@ -1334,6 +1409,27 @@ func TestGolden_DescribeExecution(t *testing.T) {
 				t.Fatalf("Print failed: %v", err)
 			}
 			assertGolden(t, "describe/execution-"+name, buf.String())
+		})
+	}
+}
+
+func TestGolden_DescribeSegment(t *testing.T) {
+	s := describeSegmentFixture()
+
+	formats := map[string]string{
+		"json": "json",
+		"yaml": "yaml",
+		"toon": "toon",
+	}
+
+	for name, format := range formats {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			printer := NewPrinterWithWriter(format, &buf)
+			if err := printer.Print(s); err != nil {
+				t.Fatalf("Print failed: %v", err)
+			}
+			assertGolden(t, "describe/segment-"+name, buf.String())
 		})
 	}
 }

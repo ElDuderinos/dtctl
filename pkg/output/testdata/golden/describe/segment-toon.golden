@@ -1,0 +1,13 @@
+allowedOperations[#3]: READ,WRITE,DELETE
+description: Filters data for Kubernetes cluster alpha
+includes[#2]{dataObject,filter}:
+  _all_data_object,"k8s.cluster.name = \"alpha\""
+  logs,"dt.system.bucket = \"custom-logs\""
+isPublic: true
+name: Kubernetes Alpha
+owner: admin@example.invalid
+uid: a1b2c3d4-e5f6-4a7b-8c9d-seg000000001
+variables:
+  type: query
+  value: fetch logs | limit 1
+version: 3

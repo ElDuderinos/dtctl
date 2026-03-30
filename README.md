@@ -120,6 +120,7 @@ dtctl create lookup -f error_codes.csv --path /lookups/production/errors --looku
 | SLOs | get, create, delete, apply, evaluate |
 | Settings | get schemas, get/create/update/delete objects |
 | Buckets | get, describe, create, delete |
+| Segments | get, describe, create, edit, delete, apply, query-time filtering |
 | Lookup Tables | get, describe, create, delete (CSV auto-detection) |
 | App Functions | get, describe, execute (discover & run serverless functions) |
 | App Intents | get, describe, find, open (deep linking across apps) |

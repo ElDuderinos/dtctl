@@ -34,6 +34,18 @@ const (
 	DecodeFull
 )
 
+// FilterSegmentRef identifies a segment and optional variable bindings for query execution.
+type FilterSegmentRef struct {
+	ID        string                  `json:"id"`
+	Variables []FilterSegmentVariable `json:"variables,omitempty"`
+}
+
+// FilterSegmentVariable defines a variable binding for a filter segment.
+type FilterSegmentVariable struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
+}
+
 // DQLExecuteOptions configures DQL query execution
 type DQLExecuteOptions struct {
 	// Output formatting options
@@ -66,6 +78,9 @@ type DQLExecuteOptions struct {
 
 	// Metadata options
 	MetadataFields []string // Metadata fields to include; nil/empty = disabled, ["all"] = all fields, specific names = filtered
+
+	// Segment options
+	Segments []FilterSegmentRef // Filter segments to apply to the query
 }
 
 // DQLVerifyOptions configures DQL query verification
@@ -77,21 +92,22 @@ type DQLVerifyOptions struct {
 
 // DQLQueryRequest represents a DQL query request
 type DQLQueryRequest struct {
-	Query                        string  `json:"query"`
-	RequestTimeoutMilliseconds   int64   `json:"requestTimeoutMilliseconds,omitempty"`
-	MaxResultRecords             int64   `json:"maxResultRecords,omitempty"`
-	MaxResultBytes               int64   `json:"maxResultBytes,omitempty"`
-	DefaultScanLimitGbytes       float64 `json:"defaultScanLimitGbytes,omitempty"`
-	DefaultSamplingRatio         float64 `json:"defaultSamplingRatio,omitempty"`
-	FetchTimeoutSeconds          int32   `json:"fetchTimeoutSeconds,omitempty"`
-	EnablePreview                bool    `json:"enablePreview,omitempty"`
-	EnforceQueryConsumptionLimit bool    `json:"enforceQueryConsumptionLimit,omitempty"`
-	IncludeTypes                 *bool   `json:"includeTypes,omitempty"`         // Pointer to distinguish between unset and false
-	IncludeContributions         *bool   `json:"includeContributions,omitempty"` // Pointer to distinguish between unset and false
-	DefaultTimeframeStart        string  `json:"defaultTimeframeStart,omitempty"`
-	DefaultTimeframeEnd          string  `json:"defaultTimeframeEnd,omitempty"`
-	Locale                       string  `json:"locale,omitempty"`
-	Timezone                     string  `json:"timezone,omitempty"`
+	Query                        string             `json:"query"`
+	RequestTimeoutMilliseconds   int64              `json:"requestTimeoutMilliseconds,omitempty"`
+	MaxResultRecords             int64              `json:"maxResultRecords,omitempty"`
+	MaxResultBytes               int64              `json:"maxResultBytes,omitempty"`
+	DefaultScanLimitGbytes       float64            `json:"defaultScanLimitGbytes,omitempty"`
+	DefaultSamplingRatio         float64            `json:"defaultSamplingRatio,omitempty"`
+	FetchTimeoutSeconds          int32              `json:"fetchTimeoutSeconds,omitempty"`
+	EnablePreview                bool               `json:"enablePreview,omitempty"`
+	EnforceQueryConsumptionLimit bool               `json:"enforceQueryConsumptionLimit,omitempty"`
+	IncludeTypes                 *bool              `json:"includeTypes,omitempty"`         // Pointer to distinguish between unset and false
+	IncludeContributions         *bool              `json:"includeContributions,omitempty"` // Pointer to distinguish between unset and false
+	DefaultTimeframeStart        string             `json:"defaultTimeframeStart,omitempty"`
+	DefaultTimeframeEnd          string             `json:"defaultTimeframeEnd,omitempty"`
+	Locale                       string             `json:"locale,omitempty"`
+	Timezone                     string             `json:"timezone,omitempty"`
+	FilterSegments               []FilterSegmentRef `json:"filterSegments,omitempty"`
 }
 
 // DQLQueryResponse represents a DQL query response
@@ -271,6 +287,11 @@ func (e *DQLExecutor) ExecuteQueryWithOptions(query string, opts DQLExecuteOptio
 		req.Timezone = opts.Timezone
 	}
 
+	// Set filter segments
+	if len(opts.Segments) > 0 {
+		req.FilterSegments = opts.Segments
+	}
+
 	var result DQLQueryResponse
 
 	// Create context with 5 minute timeout to accommodate Grail's maximum query time
@@ -302,10 +323,61 @@ func (e *DQLExecutor) ExecuteQueryWithOptions(query string, opts DQLExecuteOptio
 			return nil, err
 		}
 	} else if resp.IsError() {
-		return nil, fmt.Errorf("query failed with status %d: %s", resp.StatusCode(), resp.String())
+		return nil, enhanceQueryError(resp.StatusCode(), resp.Body())
 	}
 
 	return &result, nil
+}
+
+// dqlErrorResponse represents the structured error response from the DQL query API.
+type dqlErrorResponse struct {
+	Error struct {
+		Message string `json:"message"`
+		Details struct {
+			ErrorType    string   `json:"errorType"`
+			ErrorMessage string   `json:"errorMessage"`
+			Arguments    []string `json:"arguments"`
+		} `json:"details"`
+	} `json:"error"`
+}
+
+// enhanceQueryError parses the API error response and produces helpful messages
+// for known error types, falling back to the raw response for unknown errors.
+func enhanceQueryError(statusCode int, body []byte) error {
+	var apiErr dqlErrorResponse
+	if err := json.Unmarshal(body, &apiErr); err == nil {
+		if apiErr.Error.Details.ErrorType == "FILTER_SEGMENT_REQUIRES_VARIABLE" {
+			return formatSegmentVariableError(apiErr)
+		}
+	}
+	return fmt.Errorf("query failed with status %d: %s", statusCode, string(body))
+}
+
+// formatSegmentVariableError produces a helpful error message when a segment
+// requires variable bindings, including ready-to-use -S inline and --segments-file examples.
+func formatSegmentVariableError(apiErr dqlErrorResponse) error {
+	args := apiErr.Error.Details.Arguments
+	// Arguments: ["`<segmentID>`", "`<dataObject>`", "$<variableName>"]
+	segmentID := "unknown"
+	variableName := "unknown"
+	if len(args) >= 1 {
+		segmentID = strings.Trim(args[0], "`")
+	}
+	if len(args) >= 3 {
+		variableName = strings.TrimPrefix(args[2], "$")
+	}
+
+	return fmt.Errorf("segment %s requires variable %q\n\n"+
+		"Bind the variable inline on -S using URL-query syntax:\n\n"+
+		"  dtctl query \"...\" -S \"%s?%s=your-value-here\"\n\n"+
+		"Or use --segments-file with a YAML file for complex cases:\n\n"+
+		"  # segments.yaml\n"+
+		"  - id: %s\n"+
+		"    variables:\n"+
+		"      - name: %s\n"+
+		"        values: [\"your-value-here\"]\n\n"+
+		"  dtctl query \"...\" --segments-file segments.yaml",
+		segmentID, variableName, segmentID, variableName, segmentID, variableName)
 }
 
 // VerifyQuery verifies a DQL query without executing it

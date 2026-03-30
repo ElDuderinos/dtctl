@@ -612,10 +612,16 @@ dtctl apply -f bucket.yaml                       # Create or update bucket
 # dtctl describe fieldset <id>                     # Fieldset details
 # dtctl create fieldset -f fieldset.yaml           # Create fieldset
 
-# Filter Segments (not implemented yet)
-# dtctl get filter-segments                        # List filter segments
-# dtctl describe filter-segment <id>               # Details
-# dtctl create filter-segment -f segment.yaml      # Create segment
+# Filter Segments
+dtctl get segments                                # List filter segments
+dtctl get segments <uid>                          # Get segment by UID
+dtctl describe segment <uid>                      # Segment details
+dtctl create segment -f segment.yaml              # Create segment
+dtctl edit segment <uid>                          # Edit segment in $EDITOR
+dtctl delete segment <uid>                        # Delete segment
+dtctl apply -f segment.yaml                       # Create-or-update segment
+dtctl query "fetch logs" --segment <uid>          # Query with segment filter
+dtctl query "fetch logs" --segments-file f.yaml   # Query with segments file (supports variables)
 
 # Storage usage info (not implemented yet)
 # dtctl get bucket-usage                           # Storage usage info

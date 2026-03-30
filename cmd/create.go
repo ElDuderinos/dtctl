@@ -46,4 +46,5 @@ func init() {
 	createCmd.AddCommand(createLookupCmd)
 	createCmd.AddCommand(createEdgeConnectCmd)
 	createCmd.AddCommand(createBreakpointCmd)
+	createCmd.AddCommand(createSegmentCmd)
 }

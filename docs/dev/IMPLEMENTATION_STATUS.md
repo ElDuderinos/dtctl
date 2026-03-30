@@ -77,6 +77,7 @@ This document tracks the current implementation status of dtctl. For future plan
 | extension | ✅ | ✅ | - | - | - | - |
 | extension-config | ✅ | ✅ | - | - | - | ✅ |
 | intent | ✅ | ✅ | - | - | - | - |
+| segment | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 #### Cloud Connections
 
@@ -107,6 +108,7 @@ This document tracks the current implementation status of dtctl. For future plan
 | function | - | ✅ | - | - | - | - | - | - |
 | analyzer | - | ✅ | - | - | - | - | - | - |
 | copilot | - | ✅ | - | - | - | - | - | - |
+| segment | - | - | - | - | - | - | - | ✅ |
 
 ### Watch Mode Features
 - [x] Watch all `get` commands: `dtctl get workflows --watch`
@@ -295,7 +297,7 @@ This document tracks the current implementation status of dtctl. For future plan
 See [FUTURE_FEATURES.md](FUTURE_FEATURES.md) for the complete implementation plan including:
 - Platform Management (environment info, license)
 - State Management for Apps
-- Grail Filter Segments
+- ~~Grail Filter Segments~~ → Implemented (see `segment` resource)
 - Grail Fieldsets
 - Grail Resource Store
 

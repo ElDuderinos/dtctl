@@ -1,0 +1,64 @@
+[
+  {
+    "uid": "a1b2c3d4-e5f6-4a7b-8c9d-seg000000001",
+    "name": "Kubernetes Alpha",
+    "description": "Filters data for Kubernetes cluster alpha",
+    "isPublic": true,
+    "owner": "admin@example.invalid",
+    "version": 3,
+    "includes": [
+      {
+        "dataObject": "_all_data_object",
+        "filter": "k8s.cluster.name = \"alpha\""
+      },
+      {
+        "dataObject": "logs",
+        "filter": "dt.system.bucket = \"custom-logs\""
+      }
+    ],
+    "variables": {
+      "type": "query",
+      "value": "fetch logs | limit 1"
+    },
+    "allowedOperations": [
+      "READ",
+      "WRITE",
+      "DELETE"
+    ]
+  },
+  {
+    "uid": "b2c3d4e5-f6a7-4b8c-9d0e-seg000000002",
+    "name": "Production Services",
+    "description": "All production microservices",
+    "isPublic": false,
+    "owner": "platform-team@example.invalid",
+    "version": 1,
+    "includes": [
+      {
+        "dataObject": "spans",
+        "filter": "environment = \"production\""
+      }
+    ],
+    "allowedOperations": [
+      "READ"
+    ]
+  },
+  {
+    "uid": "c3d4e5f6-a7b8-4c9d-0e1f-seg000000003",
+    "name": "Error Logs",
+    "isPublic": true,
+    "owner": "sre-team@example.invalid",
+    "version": 7,
+    "includes": [
+      {
+        "dataObject": "logs",
+        "filter": "status = \"ERROR\""
+      }
+    ],
+    "allowedOperations": [
+      "READ",
+      "WRITE",
+      "DELETE"
+    ]
+  }
+]

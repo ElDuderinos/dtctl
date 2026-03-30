@@ -18,6 +18,7 @@ import (
 	"github.com/dynatrace-oss/dtctl/pkg/resources/extension"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/gcpconnection"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/gcpmonitoringconfig"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/segment"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/settings"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/slo"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/workflow"
@@ -103,6 +104,7 @@ const (
 	ResourceGCPConnection         ResourceType = "gcp_connection"
 	ResourceGCPMonitoringConfig   ResourceType = "gcp_monitoring_config"
 	ResourceExtensionConfig       ResourceType = "extension_config"
+	ResourceSegment               ResourceType = "segment"
 	ResourceUnknown               ResourceType = "unknown"
 )
 
@@ -166,6 +168,8 @@ func (a *Applier) Apply(fileData []byte, opts ApplyOptions) ([]ApplyResult, erro
 		result, err = a.applyGCPMonitoringConfig(jsonData)
 	case ResourceExtensionConfig:
 		result, err = a.applyExtensionConfig(jsonData)
+	case ResourceSegment:
+		result, err = a.applySegment(jsonData)
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
@@ -320,6 +324,23 @@ func detectResourceType(data []byte) (ResourceType, error) {
 					return ResourceAzureMonitoringConfig, nil
 				}
 				return ResourceSettings, nil
+			}
+		}
+	}
+
+	// Filter segments: "includes" + "isPublic" is a positive, segment-specific marker.
+	// We also check for "name" since it's required, and exclude known overlapping resources.
+	if _, hasIncludes := raw["includes"]; hasIncludes {
+		if _, hasIsPublic := raw["isPublic"]; hasIsPublic {
+			return ResourceSegment, nil
+		}
+		// Fallback: "includes" + "name" without workflow/bucket/SLO markers
+		if _, hasName := raw["name"]; hasName {
+			_, hasTasks := raw["tasks"]
+			_, hasBucketName := raw["bucketName"]
+			_, hasCriteria := raw["criteria"]
+			if !hasTasks && !hasBucketName && !hasCriteria {
+				return ResourceSegment, nil
 			}
 		}
 	}
@@ -1558,6 +1579,86 @@ func (a *Applier) applyExtensionConfig(data []byte) (ApplyResult, error) {
 		},
 		ExtensionName: extensionName,
 		Scope:         result.Scope,
+	}, nil
+}
+
+// applySegment applies a filter segment resource
+func (a *Applier) applySegment(data []byte) (ApplyResult, error) {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse segment JSON: %w", err)
+	}
+
+	handler := segment.NewHandler(a.client)
+
+	uid, hasUID := raw["uid"].(string)
+	if !hasUID || uid == "" {
+		// Create new segment
+		if err := a.checkSafety(safety.OperationCreate, safety.OwnershipUnknown); err != nil {
+			return nil, err
+		}
+
+		result, err := handler.Create(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create segment: %w", err)
+		}
+		return &SegmentApplyResult{
+			ApplyResultBase: ApplyResultBase{
+				Action:       ActionCreated,
+				ResourceType: "segment",
+				ID:           result.UID,
+				Name:         result.Name,
+			},
+		}, nil
+	}
+
+	// Check if segment exists
+	existing, err := handler.Get(uid)
+	if err != nil {
+		// Only fall through to create if the error is a 404 (not found).
+		// Other errors (network, 500, 403) should be surfaced immediately.
+		if !segment.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to check segment existence: %w", err)
+		}
+
+		// Segment doesn't exist, create it
+		if err := a.checkSafety(safety.OperationCreate, safety.OwnershipUnknown); err != nil {
+			return nil, err
+		}
+
+		result, err := handler.Create(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create segment: %w", err)
+		}
+		return &SegmentApplyResult{
+			ApplyResultBase: ApplyResultBase{
+				Action:       ActionCreated,
+				ResourceType: "segment",
+				ID:           result.UID,
+				Name:         result.Name,
+			},
+		}, nil
+	}
+
+	// Safety check for update operation - determine ownership from existing segment
+	ownership := a.determineOwnership(existing.Owner)
+	if err := a.checkSafety(safety.OperationUpdate, ownership); err != nil {
+		return nil, err
+	}
+
+	// Update existing segment
+	if err := handler.Update(uid, existing.Version, data); err != nil {
+		return nil, fmt.Errorf("failed to update segment: %w", err)
+	}
+
+	name, _ := raw["name"].(string)
+	return &SegmentApplyResult{
+		ApplyResultBase: ApplyResultBase{
+			Action:       ActionUpdated,
+			ResourceType: "segment",
+			ID:           uid,
+			Name:         name,
+		},
 	}, nil
 }
 

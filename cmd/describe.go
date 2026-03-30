@@ -364,4 +364,5 @@ func init() {
 	describeCmd.AddCommand(describeExtensionCmd)
 	describeCmd.AddCommand(describeExtensionConfigCmd)
 	describeCmd.AddCommand(describeDocumentCmd)
+	describeCmd.AddCommand(describeSegmentCmd)
 }

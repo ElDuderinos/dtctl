@@ -6,6 +6,7 @@ import (
 
 	"github.com/dynatrace-oss/dtctl/pkg/client"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/document"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/segment"
 	"github.com/dynatrace-oss/dtctl/pkg/resources/workflow"
 )
 
@@ -27,6 +28,7 @@ const (
 	TypeDashboard ResourceType = "dashboard"
 	TypeNotebook  ResourceType = "notebook"
 	TypeDocument  ResourceType = "document" // generic, searches all document types
+	TypeSegment   ResourceType = "segment"
 )
 
 // ResolveID resolves a name or ID to a resource ID
@@ -59,7 +61,14 @@ func (r *Resolver) ResolveID(resourceType ResourceType, identifier string) (stri
 
 // looksLikeID checks if a string looks like a resource ID
 func (r *Resolver) looksLikeID(str string, resourceType ResourceType) bool {
-	// All supported resource types use UUIDs (with dashes)
+	// Segments use short alphanumeric UIDs (e.g. "4lpVjcpcsjd") that are
+	// indistinguishable from names by format alone. The resolver handles
+	// segments by checking both UID and name matches in searchSegments.
+	if resourceType == TypeSegment {
+		return false
+	}
+
+	// Other supported resource types use UUIDs (with dashes)
 	if resourceType == TypeDashboard || resourceType == TypeNotebook ||
 		resourceType == TypeWorkflow || resourceType == TypeDocument {
 		// Simple heuristic: contains dashes and is long enough
@@ -87,6 +96,8 @@ func (r *Resolver) searchByName(resourceType ResourceType, name string) ([]Resou
 		return r.searchNotebooks(name)
 	case TypeDocument:
 		return r.searchAllDocuments(name)
+	case TypeSegment:
+		return r.searchSegments(name)
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
@@ -109,6 +120,45 @@ func (r *Resolver) searchWorkflows(name string) ([]Resource, error) {
 				ID:   wf.ID,
 				Name: wf.Title,
 				Type: TypeWorkflow,
+			})
+		}
+	}
+
+	return matches, nil
+}
+
+// searchSegments searches for segments by UID or name.
+// Segment UIDs are short alphanumeric strings (e.g. "4lpVjcpcsjd") that
+// cannot be distinguished from names by format, so we check both.
+// An exact UID match takes priority and is returned immediately.
+func (r *Resolver) searchSegments(name string) ([]Resource, error) {
+	handler := segment.NewHandler(r.client)
+	list, err := handler.List()
+	if err != nil {
+		return nil, err
+	}
+
+	// First pass: check for exact UID match
+	for _, seg := range list.FilterSegments {
+		if seg.UID == name {
+			return []Resource{{
+				ID:   seg.UID,
+				Name: seg.Name,
+				Type: TypeSegment,
+			}}, nil
+		}
+	}
+
+	// Second pass: search by name (case-insensitive substring)
+	var matches []Resource
+	nameLower := strings.ToLower(name)
+
+	for _, seg := range list.FilterSegments {
+		if strings.Contains(strings.ToLower(seg.Name), nameLower) {
+			matches = append(matches, Resource{
+				ID:   seg.UID,
+				Name: seg.Name,
+				Type: TypeSegment,
 			})
 		}
 	}

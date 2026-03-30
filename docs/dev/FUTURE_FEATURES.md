@@ -159,15 +159,17 @@ type Fieldset struct {
 
 ---
 
-## 4. Grail Filter Segments
+## 4. Grail Filter Segments ✅ IMPLEMENTED
+
+> **Status**: Implemented — see `pkg/resources/segment/`, `cmd/get_segments.go`, `cmd/describe_segments.go`, `cmd/create_segments.go`, `cmd/edit_segments.go`, and query-time `--segment`/`--segments-file` flags in `cmd/query.go`. Full design in [SEGMENTS_DESIGN.md](SEGMENTS_DESIGN.md).
 
 ### Endpoints to Implement
 
-- `GET /platform/storage/management/v1/filter-segments` - List segments
-- `GET /platform/storage/management/v1/filter-segments/{segmentName}` - Get segment
-- `POST /platform/storage/management/v1/filter-segments` - Create segment
-- `PUT /platform/storage/management/v1/filter-segments/{segmentName}` - Update segment
-- `DELETE /platform/storage/management/v1/filter-segments/{segmentName}` - Delete segment
+- `GET /platform/storage/filter-segments/v1/filter-segments` - List segments
+- `GET /platform/storage/filter-segments/v1/filter-segments/{segmentName}` - Get segment
+- `POST /platform/storage/filter-segments/v1/filter-segments` - Create segment
+- `PUT /platform/storage/filter-segments/v1/filter-segments/{segmentName}` - Update segment
+- `DELETE /platform/storage/filter-segments/v1/filter-segments/{segmentName}` - Delete segment
 
 ### Commands
 
@@ -331,9 +333,9 @@ Create usage examples for each resource type with common workflows.
 - [ ] Grail Fieldsets implementation
 - [ ] Grail Fieldsets commands
 - [ ] Grail Fieldsets tests
-- [ ] Grail Filter Segments implementation
-- [ ] Grail Filter Segments commands
-- [ ] Grail Filter Segments tests
+- [x] Grail Filter Segments implementation
+- [x] Grail Filter Segments commands
+- [x] Grail Filter Segments tests
 - [ ] Grail Resource Store implementation
 - [ ] Grail Resource Store commands
 - [ ] Grail Resource Store tests

@@ -149,6 +149,7 @@ func init() {
 	getCmd.AddCommand(getExtensionsCmd)
 	getCmd.AddCommand(getExtensionConfigsCmd)
 	getCmd.AddCommand(getDocumentsCmd)
+	getCmd.AddCommand(getSegmentsCmd)
 
 	// Delete subcommands (command definitions live in get_*.go files)
 
@@ -164,4 +165,5 @@ func init() {
 	deleteCmd.AddCommand(deleteAppCmd)
 	deleteCmd.AddCommand(deleteEdgeConnectCmd)
 	deleteCmd.AddCommand(deleteDocumentCmd)
+	deleteCmd.AddCommand(deleteSegmentCmd)
 }

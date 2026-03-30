@@ -404,3 +404,61 @@ func MonitoringConfigFixtureModified(prefix string) extension.MonitoringConfigur
 		},
 	}
 }
+
+// SegmentFixture returns a minimal filter segment JSON for integration testing
+func SegmentFixture(prefix string) []byte {
+	seg := map[string]interface{}{
+		"name":        fmt.Sprintf("%s-segment", prefix),
+		"description": "Integration test segment",
+		"isPublic":    false,
+		"includes": []map[string]interface{}{
+			{
+				"dataObject": "logs",
+				"filter":     "status == \"ERROR\"",
+			},
+		},
+	}
+
+	data, _ := json.Marshal(seg)
+	return data
+}
+
+// SegmentFixtureModified returns a modified filter segment for update testing
+func SegmentFixtureModified(prefix string) []byte {
+	seg := map[string]interface{}{
+		"name":        fmt.Sprintf("%s-segment-modified", prefix),
+		"description": "Modified integration test segment",
+		"isPublic":    true,
+		"includes": []map[string]interface{}{
+			{
+				"dataObject": "logs",
+				"filter":     "status == \"ERROR\"",
+			},
+			{
+				"dataObject": "spans",
+				"filter":     "span.kind == \"SERVER\"",
+			},
+		},
+	}
+
+	data, _ := json.Marshal(seg)
+	return data
+}
+
+// SegmentFixtureMultiInclude returns a segment with multiple includes for query testing
+func SegmentFixtureMultiInclude(prefix string) []byte {
+	seg := map[string]interface{}{
+		"name":        fmt.Sprintf("%s-segment-multi", prefix),
+		"description": "Integration test segment with multiple includes",
+		"isPublic":    false,
+		"includes": []map[string]interface{}{
+			{
+				"dataObject": "logs",
+				"filter":     "loglevel == \"ERROR\" OR loglevel == \"WARN\"",
+			},
+		},
+	}
+
+	data, _ := json.Marshal(seg)
+	return data
+}

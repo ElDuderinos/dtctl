@@ -10,9 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 
 	"github.com/dynatrace-oss/dtctl/pkg/exec"
 	"github.com/dynatrace-oss/dtctl/pkg/output"
+	"github.com/dynatrace-oss/dtctl/pkg/resources/resolver"
 	"github.com/dynatrace-oss/dtctl/pkg/util/template"
 )
 
@@ -117,6 +119,24 @@ Examples:
   # Include only selected metadata fields
   dtctl query "fetch logs | limit 10" --metadata=executionTimeMilliseconds,scannedRecords,scannedBytes
   dtctl query "fetch logs | limit 10" -M=queryId,analysisTimeframe -o json
+
+  # Apply a filter segment to narrow results
+  dtctl query "fetch logs | limit 10" --segment my-segment-uid
+
+  # Apply multiple segments (AND-combined)
+  dtctl query "fetch logs | limit 10" -S seg-uid-1 -S seg-uid-2
+
+  # Bind variables to a segment inline (URL-query style)
+  dtctl query "fetch logs | limit 10" -S "my-segment?host=HOST-001"
+
+  # Multiple values for a variable (comma-separated)
+  dtctl query "fetch logs | limit 10" -S "my-segment?host=HOST-001,HOST-002"
+
+  # Multiple variables on one segment
+  dtctl query "fetch logs | limit 10" -S "my-segment?host=HOST-001&ns=production"
+
+  # Apply segments with variables from a YAML file
+  dtctl query "fetch logs | limit 10" --segments-file segments.yaml
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !isSupportedQueryOutputFormat(outputFormat) {
@@ -241,6 +261,68 @@ Examples:
 			}
 		}
 
+		// Parse filter segments
+		segmentFlags, _ := cmd.Flags().GetStringArray("segment")
+		segmentsFile, _ := cmd.Flags().GetString("segments-file")
+		segmentVarFlags, _ := cmd.Flags().GetStringArray("segment-var")
+
+		var segments []exec.FilterSegmentRef
+		if len(segmentFlags) > 0 || segmentsFile != "" {
+			var flagRefs, fileRefs []exec.FilterSegmentRef
+
+			// Track original (pre-resolution) IDs so --segment-var can
+			// reference segments by the same name/UID the user typed.
+			origIDs := make(map[string]string) // resolved UID -> original flag value
+
+			if len(segmentFlags) > 0 {
+				flagRefs, err = parseSegmentFlags(segmentFlags)
+				if err != nil {
+					return err
+				}
+
+				// Resolve segment names to UIDs for --segment flag values.
+				// IDs from --segments-file are assumed to be UIDs already (the file
+				// format mirrors the API and should use UIDs).
+				res := resolver.NewResolver(c)
+				for i, ref := range flagRefs {
+					orig := ref.ID
+					resolved, resolveErr := res.ResolveID(resolver.TypeSegment, ref.ID)
+					if resolveErr != nil {
+						return fmt.Errorf("failed to resolve segment %q: %w", ref.ID, resolveErr)
+					}
+					flagRefs[i].ID = resolved
+					origIDs[resolved] = orig
+				}
+			}
+
+			if segmentsFile != "" {
+				fileRefs, err = parseSegmentsFile(segmentsFile)
+				if err != nil {
+					return err
+				}
+			}
+
+			segments = mergeSegmentRefs(flagRefs, fileRefs)
+
+			// Apply --segment-var bindings
+			if len(segmentVarFlags) > 0 {
+				varMap, varErr := parseSegmentVarFlags(segmentVarFlags)
+				if varErr != nil {
+					return varErr
+				}
+				segments, err = applySegmentVars(segments, varMap, origIDs)
+				if err != nil {
+					return err
+				}
+			}
+
+			if len(segments) > maxSegmentsPerQuery {
+				return fmt.Errorf("too many segments: %d specified, maximum is %d per query", len(segments), maxSegmentsPerQuery)
+			}
+		} else if len(segmentVarFlags) > 0 {
+			return fmt.Errorf("--segment-var requires at least one --segment or --segments-file")
+		}
+
 		opts := exec.DQLExecuteOptions{
 			OutputFormat:                 outputFormat,
 			Decode:                       decodeMode,
@@ -261,6 +343,7 @@ Examples:
 			Locale:                       locale,
 			Timezone:                     timezone,
 			MetadataFields:               metadataFields,
+			Segments:                     segments,
 		}
 
 		// Handle live mode
@@ -326,6 +409,246 @@ Examples:
 	},
 }
 
+// maxSegmentsPerQuery is the maximum number of filter segments allowed per query (Dynatrace limit).
+const maxSegmentsPerQuery = 10
+
+// parseSegmentFlags parses --segment flag values into FilterSegmentRef entries.
+// Each value can be a plain segment ID/name, or include inline variable bindings
+// using URL-query-style syntax: "SEGMENT?var=val&var2=val1,val2"
+func parseSegmentFlags(segmentIDs []string) ([]exec.FilterSegmentRef, error) {
+	var refs []exec.FilterSegmentRef
+	for _, raw := range segmentIDs {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return nil, fmt.Errorf("--segment value must not be empty")
+		}
+
+		id := raw
+		var variables []exec.FilterSegmentVariable
+
+		// Split on first "?" to separate segment ID from inline variables
+		if qIdx := strings.Index(raw, "?"); qIdx >= 0 {
+			id = strings.TrimSpace(raw[:qIdx])
+			queryStr := raw[qIdx+1:]
+
+			if id == "" {
+				return nil, fmt.Errorf("invalid --segment %q: segment ID must not be empty", raw)
+			}
+			if queryStr == "" {
+				return nil, fmt.Errorf("invalid --segment %q: expected variables after '?'", raw)
+			}
+
+			// Parse "var=val&var2=val1,val2" pairs
+			pairs := strings.Split(queryStr, "&")
+			for _, pair := range pairs {
+				pair = strings.TrimSpace(pair)
+				if pair == "" {
+					continue
+				}
+				eqIdx := strings.Index(pair, "=")
+				if eqIdx < 0 {
+					return nil, fmt.Errorf("invalid --segment %q: expected VARIABLE=VALUE in %q", raw, pair)
+				}
+				varName := strings.TrimSpace(pair[:eqIdx])
+				valuesStr := strings.TrimSpace(pair[eqIdx+1:])
+				if varName == "" {
+					return nil, fmt.Errorf("invalid --segment %q: variable name must not be empty", raw)
+				}
+				if valuesStr == "" {
+					return nil, fmt.Errorf("invalid --segment %q: variable %q value must not be empty", raw, varName)
+				}
+				values := strings.Split(valuesStr, ",")
+				for i, v := range values {
+					values[i] = strings.TrimSpace(v)
+				}
+				variables = append(variables, exec.FilterSegmentVariable{
+					Name:   varName,
+					Values: values,
+				})
+			}
+		}
+
+		refs = append(refs, exec.FilterSegmentRef{ID: id, Variables: variables})
+	}
+	return refs, nil
+}
+
+// parseSegmentsFile reads a YAML file containing an array of FilterSegmentRef entries.
+func parseSegmentsFile(path string) ([]exec.FilterSegmentRef, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read segments file: %w", err)
+	}
+
+	var refs []exec.FilterSegmentRef
+	if err := yaml.Unmarshal(data, &refs); err != nil {
+		return nil, fmt.Errorf("failed to parse segments file %q: %w", path, err)
+	}
+
+	// Validate entries
+	for i, ref := range refs {
+		if ref.ID == "" {
+			return nil, fmt.Errorf("segment entry %d in %q is missing required 'id' field", i+1, path)
+		}
+	}
+
+	return refs, nil
+}
+
+// parseSegmentVarFlags parses --segment-var flag values into a map of segment ID -> variables.
+// Format: "SEGMENT:VARIABLE=VALUE[,VALUE,...]"
+//
+// Examples:
+//
+//	"seg-uid:host=HOST-001"           -> seg-uid: [{name: "host", values: ["HOST-001"]}]
+//	"seg-uid:host=HOST-001,HOST-002"  -> seg-uid: [{name: "host", values: ["HOST-001", "HOST-002"]}]
+//
+// Multiple --segment-var flags for the same segment accumulate variables.
+func parseSegmentVarFlags(vars []string) (map[string][]exec.FilterSegmentVariable, error) {
+	result := make(map[string][]exec.FilterSegmentVariable)
+
+	for _, v := range vars {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return nil, fmt.Errorf("--segment-var value must not be empty")
+		}
+
+		// Split on first ":" to get segment ID and variable assignment
+		colonIdx := strings.Index(v, ":")
+		if colonIdx < 0 {
+			return nil, fmt.Errorf("invalid --segment-var %q: expected format SEGMENT:VARIABLE=VALUE[,VALUE,...]", v)
+		}
+
+		segmentID := strings.TrimSpace(v[:colonIdx])
+		varAssignment := strings.TrimSpace(v[colonIdx+1:])
+
+		if segmentID == "" {
+			return nil, fmt.Errorf("invalid --segment-var %q: segment ID must not be empty", v)
+		}
+		if varAssignment == "" {
+			return nil, fmt.Errorf("invalid --segment-var %q: variable assignment must not be empty", v)
+		}
+
+		// Split variable assignment on first "=" to get name and values
+		eqIdx := strings.Index(varAssignment, "=")
+		if eqIdx < 0 {
+			return nil, fmt.Errorf("invalid --segment-var %q: expected VARIABLE=VALUE[,VALUE,...] after segment ID", v)
+		}
+
+		varName := strings.TrimSpace(varAssignment[:eqIdx])
+		valuesStr := strings.TrimSpace(varAssignment[eqIdx+1:])
+
+		if varName == "" {
+			return nil, fmt.Errorf("invalid --segment-var %q: variable name must not be empty", v)
+		}
+		if valuesStr == "" {
+			return nil, fmt.Errorf("invalid --segment-var %q: variable value must not be empty", v)
+		}
+
+		// Split values on comma
+		values := strings.Split(valuesStr, ",")
+		for i, val := range values {
+			values[i] = strings.TrimSpace(val)
+		}
+
+		// Check if we already have a variable with this name for this segment
+		// (merge values if so)
+		found := false
+		for i, existing := range result[segmentID] {
+			if existing.Name == varName {
+				result[segmentID][i].Values = append(result[segmentID][i].Values, values...)
+				found = true
+				break
+			}
+		}
+		if !found {
+			result[segmentID] = append(result[segmentID], exec.FilterSegmentVariable{
+				Name:   varName,
+				Values: values,
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// applySegmentVars applies parsed --segment-var bindings to a slice of segment refs.
+// Variables are matched by the original (pre-resolution) segment identifier, which is
+// looked up via the origIDs map (resolved ID -> original flag value). This allows users
+// to specify variables using the same name/UID they passed to --segment.
+//
+// Returns an error if a --segment-var references a segment not present in the refs.
+func applySegmentVars(refs []exec.FilterSegmentRef, varMap map[string][]exec.FilterSegmentVariable, origIDs map[string]string) ([]exec.FilterSegmentRef, error) {
+	if len(varMap) == 0 {
+		return refs, nil
+	}
+
+	// Build reverse lookup: original ID -> index in refs (using origIDs map)
+	origToIdx := make(map[string]int, len(refs))
+	for i, ref := range refs {
+		if orig, ok := origIDs[ref.ID]; ok {
+			origToIdx[orig] = i
+		}
+		// Also allow matching by resolved ID directly
+		origToIdx[ref.ID] = i
+	}
+
+	for segID, variables := range varMap {
+		idx, ok := origToIdx[segID]
+		if !ok {
+			return nil, fmt.Errorf("--segment-var references segment %q which is not specified via --segment or --segments-file", segID)
+		}
+		// Merge variables: CLI vars take precedence over file vars for the same name
+		existing := refs[idx].Variables
+		existingMap := make(map[string]int, len(existing))
+		for i, v := range existing {
+			existingMap[v.Name] = i
+		}
+		for _, newVar := range variables {
+			if i, ok := existingMap[newVar.Name]; ok {
+				// Replace existing variable values
+				existing[i] = newVar
+			} else {
+				existing = append(existing, newVar)
+			}
+		}
+		refs[idx].Variables = existing
+	}
+
+	return refs, nil
+}
+
+// mergeSegmentRefs merges segment refs from --segment flags and --segments-file.
+// File entries win on ID conflict (they may carry variables). Duplicates by ID are deduplicated.
+func mergeSegmentRefs(flagRefs, fileRefs []exec.FilterSegmentRef) []exec.FilterSegmentRef {
+	// Build map keyed by ID; file entries are added first so flag entries
+	// only fill in IDs not already present (file wins).
+	seen := make(map[string]exec.FilterSegmentRef, len(flagRefs)+len(fileRefs))
+	order := make([]string, 0, len(flagRefs)+len(fileRefs))
+
+	// File entries first (higher priority)
+	for _, ref := range fileRefs {
+		if _, exists := seen[ref.ID]; !exists {
+			order = append(order, ref.ID)
+		}
+		seen[ref.ID] = ref
+	}
+
+	// Flag entries only if not already present from file
+	for _, ref := range flagRefs {
+		if _, exists := seen[ref.ID]; !exists {
+			order = append(order, ref.ID)
+			seen[ref.ID] = ref
+		}
+	}
+
+	merged := make([]exec.FilterSegmentRef, 0, len(order))
+	for _, id := range order {
+		merged = append(merged, seen[id])
+	}
+	return merged
+}
+
 func init() {
 	rootCmd.AddCommand(queryCmd)
 
@@ -377,6 +700,14 @@ bare --decode-snapshots simplifies variant wrappers to plain values;
 --decode-snapshots=full preserves the full decoded tree with type annotations`)
 	queryCmd.Flags().Lookup("decode-snapshots").NoOptDefVal = "simplified"
 
+	// Filter segment flags
+	queryCmd.Flags().StringArrayP("segment", "S", nil, `filter segment ID or name (repeatable, max 10, AND-combined)
+supports inline variables: -S "SEGMENT?var=val&var2=val1,val2"`)
+	queryCmd.Flags().String("segments-file", "", "YAML file with filter segment definitions (supports variables)")
+	queryCmd.Flags().StringArrayP("segment-var", "V", nil, `override a segment variable (repeatable)
+format: SEGMENT:VARIABLE=VALUE[,VALUE,...]
+takes precedence over --segments-file variables`)
+
 	// Shell completion for --metadata field names (supports comma-separated values)
 	_ = queryCmd.RegisterFlagCompletionFunc("metadata", metadataFieldCompletion)
 
@@ -386,6 +717,11 @@ bare --decode-snapshots simplifies variant wrappers to plain values;
 			"simplified\tFlatten variant wrappers to plain values (default)",
 			"full\tPreserve full decoded tree with type annotations",
 		}, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	// Shell completion for --segments-file (YAML files)
+	_ = queryCmd.RegisterFlagCompletionFunc("segments-file", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"yaml", "yml"}, cobra.ShellCompDirectiveFilterFileExt
 	})
 }
 

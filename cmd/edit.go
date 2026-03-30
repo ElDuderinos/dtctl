@@ -39,4 +39,5 @@ func init() {
 	editCmd.AddCommand(editNotebookCmd)
 	editCmd.AddCommand(editDocumentCmd)
 	editCmd.AddCommand(editSettingCmd)
+	editCmd.AddCommand(editSegmentCmd)
 }
