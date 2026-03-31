@@ -160,7 +160,7 @@ func deriveEventType(value map[string]any) string {
 	return ""
 }
 
-// extractEventName extracts the event.name from eventTemplate properties.
+// ExtractEventName extracts the event.name from eventTemplate properties.
 func ExtractEventName(value map[string]any) string {
 	et, ok := value["eventTemplate"].(map[string]any)
 	if !ok {
@@ -547,17 +547,43 @@ func flattenedToAPIValue(raw map[string]any) (map[string]any, error) {
 		return nil, fmt.Errorf("'analyzer.name' is required")
 	}
 
-	// Convert analyzer input from map to [{key, value}] array
-	if input, ok := analyzer["input"].(map[string]any); ok {
+	// Convert analyzer input to [{key, value}] array.
+	// Handle four cases:
+	// 1. map[string]any (flattened format from JSON unmarshal) — convert to [{key, value}]
+	// 2. map[string]string (flattened format from ToFlattenedYAML round-trip) — convert
+	// 3. []any (already in API format) — pass through
+	// 4. nil/missing — default to empty array (required by API for auto-adaptive analyzers)
+	switch input := analyzer["input"].(type) {
+	case map[string]any:
 		apiAnalyzer["input"] = mapToKVArray(input)
+	case map[string]string:
+		m := make(map[string]any, len(input))
+		for k, v := range input {
+			m[k] = v
+		}
+		apiAnalyzer["input"] = mapToKVArray(m)
+	case []any:
+		apiAnalyzer["input"] = input
+	default:
+		apiAnalyzer["input"] = []map[string]any{}
 	}
 
 	value["analyzer"] = apiAnalyzer
 
 	// Event template: convert from map to {properties: [{key, value}]}
-	if et, ok := raw["eventTemplate"].(map[string]any); ok {
+	// Handle both map[string]any (JSON unmarshal) and map[string]string (ToFlattenedYAML round-trip)
+	switch et := raw["eventTemplate"].(type) {
+	case map[string]any:
 		value["eventTemplate"] = map[string]any{
 			"properties": mapToKVArray(et),
+		}
+	case map[string]string:
+		m := make(map[string]any, len(et))
+		for k, v := range et {
+			m[k] = v
+		}
+		value["eventTemplate"] = map[string]any{
+			"properties": mapToKVArray(m),
 		}
 	}
 

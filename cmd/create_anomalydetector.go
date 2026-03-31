@@ -71,10 +71,10 @@ Examples:
 
 		// Handle dry-run
 		if dryRun {
-			fmt.Printf("Dry run: would create anomaly detector\n")
-			fmt.Println("---")
-			fmt.Println(string(jsonData))
-			fmt.Println("---")
+			output.PrintInfo("Dry run: would create anomaly detector")
+			output.PrintInfo("---")
+			output.PrintInfo("%s", string(jsonData))
+			output.PrintInfo("---")
 			return nil
 		}
 

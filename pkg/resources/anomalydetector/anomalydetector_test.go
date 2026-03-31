@@ -888,3 +888,313 @@ func TestMapToKVArray_Deterministic(t *testing.T) {
 		t.Errorf("mapToKVArray() not sorted: %v", result)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GetRaw tests
+// ---------------------------------------------------------------------------
+
+func TestGetRaw_ReturnsValueJSON(t *testing.T) {
+	h, server := newTestHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		item := sampleItem("obj-1", "CPU Alert", true)
+		json.NewEncoder(w).Encode(item)
+	})
+	defer server.Close()
+
+	raw, err := h.GetRaw("obj-1")
+	if err != nil {
+		t.Fatalf("GetRaw() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("GetRaw() returned invalid JSON: %v", err)
+	}
+	if parsed["title"] != "CPU Alert" {
+		t.Errorf("title = %v, want %q", parsed["title"], "CPU Alert")
+	}
+	if _, ok := parsed["analyzer"]; !ok {
+		t.Error("GetRaw() result missing 'analyzer' field")
+	}
+}
+
+func TestGetRaw_PropagatesError(t *testing.T) {
+	h, server := newTestHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found"))
+	})
+	defer server.Close()
+
+	_, err := h.GetRaw("nonexistent")
+	if err == nil {
+		t.Fatal("GetRaw() expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("GetRaw() error = %q, want to contain %q", err.Error(), "not found")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Round-trip test: flatten → API format → flatten
+// ---------------------------------------------------------------------------
+
+func TestRoundTrip_FlattenToAPIAndBack(t *testing.T) {
+	// Start with a realistic API value (as returned by the Settings API)
+	apiValue := map[string]any{
+		"title":       "Round-Trip Detector",
+		"enabled":     true,
+		"description": "Tests lossless conversion",
+		"source":      "dtctl",
+		"analyzer": map[string]any{
+			"name": "dt.statistics.ui.anomaly_detection.StaticThresholdAnomalyDetectionAnalyzer",
+			"input": []any{
+				map[string]any{"key": "alertCondition", "value": "ABOVE"},
+				map[string]any{"key": "query", "value": "timeseries cpu=avg(dt.host.cpu.usage)"},
+				map[string]any{"key": "threshold", "value": "90"},
+			},
+		},
+		"eventTemplate": map[string]any{
+			"properties": []any{
+				map[string]any{"key": "event.name", "value": "High CPU"},
+				map[string]any{"key": "event.type", "value": "PERFORMANCE_EVENT"},
+			},
+		},
+	}
+
+	// Step 1: API → Flattened
+	flat := ToFlattenedYAML(apiValue)
+	if flat["title"] != "Round-Trip Detector" {
+		t.Fatalf("ToFlattenedYAML() title = %v, want %q", flat["title"], "Round-Trip Detector")
+	}
+
+	// Step 2: Flattened → API value
+	apiResult, err := flattenedToAPIValue(flat)
+	if err != nil {
+		t.Fatalf("flattenedToAPIValue() error = %v", err)
+	}
+
+	// Verify key fields survived the round trip
+	if apiResult["title"] != "Round-Trip Detector" {
+		t.Errorf("title = %v, want %q", apiResult["title"], "Round-Trip Detector")
+	}
+	if apiResult["enabled"] != true {
+		t.Errorf("enabled = %v, want true", apiResult["enabled"])
+	}
+	if apiResult["source"] != "dtctl" {
+		t.Errorf("source = %v, want %q", apiResult["source"], "dtctl")
+	}
+
+	// Verify analyzer survived
+	analyzer, ok := apiResult["analyzer"].(map[string]any)
+	if !ok {
+		t.Fatal("analyzer is not a map")
+	}
+	if analyzer["name"] != "dt.statistics.ui.anomaly_detection.StaticThresholdAnomalyDetectionAnalyzer" {
+		t.Errorf("analyzer.name = %v", analyzer["name"])
+	}
+	input, ok := analyzer["input"].([]map[string]any)
+	if !ok {
+		t.Fatalf("analyzer.input type = %T, want []map[string]any", analyzer["input"])
+	}
+	if len(input) != 3 {
+		t.Fatalf("analyzer.input has %d items, want 3", len(input))
+	}
+
+	// Verify eventTemplate survived
+	et, ok := apiResult["eventTemplate"].(map[string]any)
+	if !ok {
+		t.Fatal("eventTemplate is not a map")
+	}
+	props, ok := et["properties"].([]map[string]any)
+	if !ok {
+		t.Fatalf("eventTemplate.properties type = %T, want []map[string]any", et["properties"])
+	}
+	if len(props) != 2 {
+		t.Fatalf("eventTemplate.properties has %d items, want 2", len(props))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Create with error-in-response body
+// ---------------------------------------------------------------------------
+
+func TestCreate_ErrorInResponseBody(t *testing.T) {
+	h, server := newTestHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Settings API returns HTTP 200 but with an error in the response body
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]createResponse{{
+			ObjectID: "",
+			Code:     400,
+			Error: &struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			}{
+				Code:    400,
+				Message: "Invalid analyzer configuration",
+			},
+		}})
+	})
+	defer server.Close()
+
+	data := []byte(`{"title":"Bad Detector","analyzer":{"name":"dt.statistics.ui.anomaly_detection.StaticThresholdAnomalyDetectionAnalyzer"},"eventTemplate":{"event.type":"PERFORMANCE_EVENT"}}`)
+	_, err := h.Create(data)
+	if err == nil {
+		t.Fatal("Create() expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "Invalid analyzer configuration") {
+		t.Errorf("Create() error = %q, want to contain %q", err.Error(), "Invalid analyzer configuration")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Auto-adaptive analyzer through create path
+// ---------------------------------------------------------------------------
+
+func TestCreate_AutoAdaptiveAnalyzer(t *testing.T) {
+	var capturedBody []map[string]any
+	h, server := newTestHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+				t.Fatalf("failed to decode POST body: %v", err)
+			}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode([]createResponse{{ObjectID: "new-auto-1"}})
+		case http.MethodGet:
+			item := settingsItem{
+				ObjectID:      "new-auto-1",
+				SchemaID:      SchemaID,
+				SchemaVersion: "1.0.15",
+				Scope:         Scope,
+				Value: map[string]any{
+					"title":   "Auto Detector",
+					"enabled": true,
+					"source":  "dtctl",
+					"analyzer": map[string]any{
+						"name":  "dt.statistics.ui.anomaly_detection.AutoAdaptiveAnomalyDetectionAnalyzer",
+						"input": []any{},
+					},
+					"eventTemplate": map[string]any{
+						"properties": []any{
+							map[string]any{"key": "event.type", "value": "PERFORMANCE_EVENT"},
+						},
+					},
+				},
+			}
+			json.NewEncoder(w).Encode(item)
+		}
+	})
+	defer server.Close()
+
+	// Auto-adaptive analyzer: no input field in flattened format
+	data := []byte(`{
+		"title": "Auto Detector",
+		"enabled": true,
+		"analyzer": {
+			"name": "dt.statistics.ui.anomaly_detection.AutoAdaptiveAnomalyDetectionAnalyzer"
+		},
+		"eventTemplate": {"event.type": "PERFORMANCE_EVENT"}
+	}`)
+
+	result, err := h.Create(data)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if result.ObjectID != "new-auto-1" {
+		t.Errorf("ObjectID = %q, want %q", result.ObjectID, "new-auto-1")
+	}
+
+	// Verify the POST body has analyzer.input as an empty array, not nil/missing
+	if len(capturedBody) != 1 {
+		t.Fatalf("POST body has %d items, want 1", len(capturedBody))
+	}
+	value, ok := capturedBody[0]["value"].(map[string]any)
+	if !ok {
+		t.Fatal("POST body missing value field")
+	}
+	analyzer, ok := value["analyzer"].(map[string]any)
+	if !ok {
+		t.Fatal("POST body missing analyzer field")
+	}
+	input, ok := analyzer["input"].([]any)
+	if !ok {
+		t.Fatalf("analyzer.input type = %T, want []any (empty array)", analyzer["input"])
+	}
+	if len(input) != 0 {
+		t.Errorf("analyzer.input has %d items, want 0 (auto-adaptive has no input params)", len(input))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// flattenedToAPIValue with eventTemplate conversion
+// ---------------------------------------------------------------------------
+
+func TestFlattenedToAPIValue_EventTemplate(t *testing.T) {
+	raw := map[string]any{
+		"title": "ET Test",
+		"analyzer": map[string]any{
+			"name": "dt.statistics.ui.anomaly_detection.StaticThresholdAnomalyDetectionAnalyzer",
+		},
+		"eventTemplate": map[string]any{
+			"event.type": "AVAILABILITY_EVENT",
+			"event.name": "Service Down",
+		},
+	}
+
+	value, err := flattenedToAPIValue(raw)
+	if err != nil {
+		t.Fatalf("flattenedToAPIValue() error = %v", err)
+	}
+
+	et, ok := value["eventTemplate"].(map[string]any)
+	if !ok {
+		t.Fatal("eventTemplate is not a map")
+	}
+	props, ok := et["properties"].([]map[string]any)
+	if !ok {
+		t.Fatalf("eventTemplate.properties type = %T, want []map[string]any", et["properties"])
+	}
+	if len(props) != 2 {
+		t.Fatalf("eventTemplate.properties has %d items, want 2", len(props))
+	}
+
+	// Should be sorted by key
+	found := map[string]string{}
+	for _, prop := range props {
+		found[prop["key"].(string)] = prop["value"].(string)
+	}
+	if found["event.type"] != "AVAILABILITY_EVENT" {
+		t.Errorf("event.type = %q, want %q", found["event.type"], "AVAILABILITY_EVENT")
+	}
+	if found["event.name"] != "Service Down" {
+		t.Errorf("event.name = %q, want %q", found["event.name"], "Service Down")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Empty list response
+// ---------------------------------------------------------------------------
+
+func TestList_Empty(t *testing.T) {
+	h, server := newTestHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		if settingsConstraintGuard(t, w, r) {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(listResponse{
+			Items:      []settingsItem{},
+			TotalCount: 0,
+		})
+	})
+	defer server.Close()
+
+	detectors, err := h.List(ListOptions{})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(detectors) != 0 {
+		t.Fatalf("List() returned %d items, want 0", len(detectors))
+	}
+}
