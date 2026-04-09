@@ -704,7 +704,7 @@ func TestApply_SegmentCreate_NoUID(t *testing.T) {
 	defer srv.Close()
 	a := NewApplier(c)
 
-	segJSON := `{"name":"Test Segment","isPublic":true,"includes":[{"dataObject":"logs","filter":"status == \"ERROR\""}]}`
+	segJSON := `{"name":"Test Segment","isPublic":true,"includes":[{"dataObject":"logs","filter":"status = \\\"ERROR\\\""}]}`
 	results, err := a.Apply([]byte(segJSON), ApplyOptions{})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
@@ -751,7 +751,7 @@ func TestApply_SegmentUpdate_Exists(t *testing.T) {
 	defer srv.Close()
 	a := NewApplier(c)
 
-	segJSON := `{"uid":"seg-uid-001","name":"Updated Segment","isPublic":true,"includes":[{"dataObject":"logs","filter":"status == \"ERROR\""}]}`
+	segJSON := `{"uid":"seg-uid-001","name":"Updated Segment","isPublic":true,"includes":[{"dataObject":"logs","filter":"status = \\\"ERROR\\\""}]}`
 	results, err := a.Apply([]byte(segJSON), ApplyOptions{})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
@@ -786,7 +786,7 @@ func TestApply_SegmentCreate_IDNotFound(t *testing.T) {
 	defer srv.Close()
 	a := NewApplier(c)
 
-	segJSON := `{"uid":"seg-missing","name":"New Segment","isPublic":false,"includes":[{"dataObject":"logs","filter":"status == \"ERROR\""}]}`
+	segJSON := `{"uid":"seg-missing","name":"New Segment","isPublic":false,"includes":[{"dataObject":"logs","filter":"status = \\\"ERROR\\\""}]}`
 	results, err := a.Apply([]byte(segJSON), ApplyOptions{})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
@@ -816,7 +816,7 @@ func TestApply_Segment_GetServerError_NoFallthrough(t *testing.T) {
 	defer srv.Close()
 	a := NewApplier(c)
 
-	segJSON := `{"uid":"seg-uid-001","name":"Test Segment","isPublic":true,"includes":[{"dataObject":"logs","filter":"status == \"ERROR\""}]}`
+	segJSON := `{"uid":"seg-uid-001","name":"Test Segment","isPublic":true,"includes":[{"dataObject":"logs","filter":"status = \\\"ERROR\\\""}]}`
 	_, err := a.Apply([]byte(segJSON), ApplyOptions{})
 	if err == nil {
 		t.Fatal("Apply() should have returned an error for server error, got nil")

@@ -81,8 +81,10 @@ func (h *Handler) List() (*FilterSegmentList, error) {
 		return nil, fmt.Errorf("failed to parse segments response: %w", err)
 	}
 
-	// Populate VariablesDisplay for wide table output
+	// Convert AST filters to human-readable DQL for display, and
+	// populate VariablesDisplay for wide table output.
 	for i := range result.FilterSegments {
+		convertIncludesForDisplay(&result.FilterSegments[i])
 		result.FilterSegments[i].VariablesDisplay = variablesDisplay(result.FilterSegments[i].Variables)
 	}
 
@@ -123,14 +125,23 @@ func (h *Handler) Get(uid string) (*FilterSegment, error) {
 		return nil, fmt.Errorf("failed to parse segment response: %w", err)
 	}
 
+	// Convert AST filters to human-readable DQL for display
+	convertIncludesForDisplay(&result)
+
 	return &result, nil
 }
 
 // Create creates a new filter segment from raw JSON/YAML bytes.
 func (h *Handler) Create(data []byte) (*FilterSegment, error) {
+	// Convert DQL filters to AST for the API
+	converted, err := convertIncludesForAPI(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert filter expressions: %w", err)
+	}
+
 	resp, err := h.client.HTTP().R().
 		SetHeader("Content-Type", "application/json").
-		SetBody(data).
+		SetBody(converted).
 		Post(basePath)
 
 	if err != nil {
@@ -161,10 +172,16 @@ func (h *Handler) Create(data []byte) (*FilterSegment, error) {
 // Update updates an existing filter segment.
 // The version parameter is required for optimistic locking.
 func (h *Handler) Update(uid string, version int, data []byte) error {
+	// Convert DQL filters to AST for the API
+	converted, err := convertIncludesForAPI(data)
+	if err != nil {
+		return fmt.Errorf("failed to convert filter expressions: %w", err)
+	}
+
 	resp, err := h.client.HTTP().R().
 		SetHeader("Content-Type", "application/json").
 		SetQueryParam("optimistic-locking-version", fmt.Sprintf("%d", version)).
-		SetBody(data).
+		SetBody(converted).
 		Put(fmt.Sprintf("%s/%s", basePath, uid))
 
 	if err != nil {
@@ -225,4 +242,80 @@ func (h *Handler) GetRaw(uid string) ([]byte, error) {
 // IsNotFound returns true if the error indicates a segment was not found (404).
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
+}
+
+// ---------------------------------------------------------------------------
+// Filter format conversion (DQL ↔ AST)
+// ---------------------------------------------------------------------------
+
+// convertIncludesForAPI converts include filters from DQL to AST before
+// sending to the API. It operates on raw JSON bytes so it works with both
+// create and update payloads. If a filter is already JSON AST (starts with
+// '{'), it is passed through unchanged.
+func convertIncludesForAPI(data []byte) ([]byte, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse request body: %w", err)
+	}
+
+	includesRaw, ok := payload["includes"]
+	if !ok {
+		return data, nil // no includes field — pass through unchanged
+	}
+
+	var includes []map[string]json.RawMessage
+	if err := json.Unmarshal(includesRaw, &includes); err != nil {
+		return nil, fmt.Errorf("failed to parse includes: %w", err)
+	}
+
+	changed := false
+	for i, inc := range includes {
+		filterRaw, ok := inc["filter"]
+		if !ok {
+			continue
+		}
+		var filter string
+		if err := json.Unmarshal(filterRaw, &filter); err != nil {
+			continue // not a string — skip
+		}
+
+		ast, err := FilterToAST(filter)
+		if err != nil {
+			return nil, fmt.Errorf("include[%d]: %w", i, err)
+		}
+		if ast != filter {
+			newFilterJSON, err := json.Marshal(ast)
+			if err != nil {
+				return nil, fmt.Errorf("include[%d]: failed to marshal AST: %w", i, err)
+			}
+			inc["filter"] = newFilterJSON
+			changed = true
+		}
+	}
+
+	if !changed {
+		return data, nil
+	}
+
+	newIncludes, err := json.Marshal(includes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal includes: %w", err)
+	}
+	payload["includes"] = newIncludes
+
+	return json.Marshal(payload)
+}
+
+// convertIncludesForDisplay converts include filters from AST to
+// human-readable DQL after receiving from the API. It modifies the
+// FilterSegment in place. If a filter is already plain DQL (doesn't
+// start with '{'), it is left unchanged.
+func convertIncludesForDisplay(seg *FilterSegment) {
+	for i := range seg.Includes {
+		dql, err := FilterFromAST(seg.Includes[i].Filter)
+		if err != nil {
+			continue // leave as-is if conversion fails
+		}
+		seg.Includes[i].Filter = dql
+	}
 }

@@ -414,7 +414,7 @@ func SegmentFixture(prefix string) []byte {
 		"includes": []map[string]interface{}{
 			{
 				"dataObject": "logs",
-				"filter":     "status == \"ERROR\"",
+				"filter":     "status = \"ERROR\"",
 			},
 		},
 	}
@@ -432,11 +432,11 @@ func SegmentFixtureModified(prefix string) []byte {
 		"includes": []map[string]interface{}{
 			{
 				"dataObject": "logs",
-				"filter":     "status == \"ERROR\"",
+				"filter":     "status = \"ERROR\"",
 			},
 			{
 				"dataObject": "spans",
-				"filter":     "span.kind == \"SERVER\"",
+				"filter":     "span.kind = \"SERVER\"",
 			},
 		},
 	}
@@ -521,7 +521,7 @@ func SegmentFixtureMultiInclude(prefix string) []byte {
 		"includes": []map[string]interface{}{
 			{
 				"dataObject": "logs",
-				"filter":     "loglevel == \"ERROR\" OR loglevel == \"WARN\"",
+				"filter":     "loglevel = \"ERROR\" OR loglevel = \"WARN\"",
 			},
 		},
 	}
