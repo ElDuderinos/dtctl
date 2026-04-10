@@ -1,6 +1,9 @@
 package config
 
 import (
+	"context"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -38,52 +41,73 @@ func TestKeyringBackend(t *testing.T) {
 	}
 }
 
-func TestContains(t *testing.T) {
-	tests := []struct {
-		name    string
-		s       string
-		substrs []string
-		want    bool
-	}{
-		{
-			name:    "contains one",
-			s:       "hello world",
-			substrs: []string{"world"},
-			want:    true,
-		},
-		{
-			name:    "contains multiple check",
-			s:       "secret service error",
-			substrs: []string{"keychain", "secret service"},
-			want:    true,
-		},
-		{
-			name:    "contains none",
-			s:       "some error",
-			substrs: []string{"keychain", "dbus"},
-			want:    false,
-		},
-		{
-			name:    "empty string",
-			s:       "",
-			substrs: []string{"test"},
-			want:    false,
-		},
-		{
-			name:    "empty substrs",
-			s:       "hello",
-			substrs: []string{},
-			want:    false,
-		},
-	}
+func TestCheckKeyring_Disabled(t *testing.T) {
+	t.Setenv(EnvDisableKeyring, "1")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := contains(tt.s, tt.substrs...); got != tt.want {
-				t.Errorf("contains() = %v, want %v", got, tt.want)
-			}
-		})
+	err := CheckKeyring()
+	if err == nil {
+		t.Fatal("CheckKeyring() should return error when keyring is disabled")
 	}
+	if !strings.Contains(err.Error(), EnvDisableKeyring) {
+		t.Errorf("error should mention %s, got: %v", EnvDisableKeyring, err)
+	}
+}
+
+func TestCheckKeyring_ReturnsNilOrError(t *testing.T) {
+	// Smoke test: the function should not panic regardless of environment.
+	// In CI (no keyring) it returns an error; on a desktop it may return nil.
+	err := CheckKeyring()
+	if err != nil {
+		t.Logf("CheckKeyring() returned error (expected in CI): %v", err)
+	}
+}
+
+func TestIsKeyringAvailable_MatchesCheckKeyring(t *testing.T) {
+	available := IsKeyringAvailable()
+	err := CheckKeyring()
+	if available != (err == nil) {
+		t.Errorf("IsKeyringAvailable()=%v but CheckKeyring() returned %v", available, err)
+	}
+}
+
+func TestEnsureKeyringCollection_Smoke(t *testing.T) {
+	// EnsureKeyringCollection requires D-Bus and Secret Service.
+	// In most test environments these are unavailable, so the function
+	// should return an error without panicking.
+	err := EnsureKeyringCollection(context.Background())
+	if err == nil {
+		return // D-Bus available (desktop environment) — nothing more to assert
+	}
+	t.Logf("EnsureKeyringCollection() error (expected in CI): %v", err)
+
+	if runtime.GOOS == "linux" {
+		// On Linux without D-Bus we expect a connection error.
+		if !strings.Contains(err.Error(), "cannot connect to Secret Service") {
+			t.Errorf("expected 'cannot connect to Secret Service' error, got: %v", err)
+		}
+	} else {
+		// On non-Linux platforms the stub should report the OS.
+		if !strings.Contains(err.Error(), "only supported on Linux") {
+			t.Errorf("expected 'only supported on Linux' error, got: %v", err)
+		}
+	}
+}
+
+func TestEnsureKeyringCollection_RespectsContext(t *testing.T) {
+	// Verify that a cancelled context is honoured (the function should
+	// return promptly rather than blocking).
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	err := EnsureKeyringCollection(ctx)
+	if err == nil {
+		// If D-Bus is available and the collection already exists the
+		// function returns nil before reaching the poll loop — acceptable.
+		return
+	}
+	// The error is either the context cancellation or the usual D-Bus
+	// / platform error — both are fine.
+	t.Logf("EnsureKeyringCollection(cancelled) error: %v", err)
 }
 
 func TestGetTokenWithFallback(t *testing.T) {

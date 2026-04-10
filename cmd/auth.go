@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,14 @@ import (
 var (
 	idOnly  bool
 	refresh bool
+)
+
+// authCheckKeyringFunc and authEnsureKeyringFunc are the functions used to
+// probe and recover the keyring in auth login. They default to the real
+// implementations and can be overridden in tests.
+var (
+	authCheckKeyringFunc  = config.CheckKeyring
+	authEnsureKeyringFunc = config.EnsureKeyringCollection
 )
 
 // authCmd represents the auth command
@@ -230,8 +239,34 @@ you'll need to use API token authentication instead (dtctl config set-credential
 		}
 
 		// Ensure keyring is available before starting OAuth flow
-		if !config.IsKeyringAvailable() {
-			return fmt.Errorf("OAuth login requires a working system keyring, but none is available; please configure a keyring (or disable keyring usage if supported) and try again, or use an alternative authentication method")
+		if keyringErr := authCheckKeyringFunc(); keyringErr != nil {
+			recovered := false
+			// On Linux/WSL the persistent keyring collection may not exist yet.
+			// Attempt to create it — this may trigger an OS password prompt.
+			if strings.Contains(keyringErr.Error(), config.ErrMsgCollectionUnlock) {
+				output.PrintInfo("No keyring collection found — creating one (you may be prompted for a password)...")
+				if initErr := authEnsureKeyringFunc(cmd.Context()); initErr == nil {
+					if authCheckKeyringFunc() == nil {
+						output.PrintSuccess("Keyring collection created successfully")
+						recovered = true
+					}
+				}
+			}
+			if !recovered {
+				return &diagnostic.Error{
+					Operation: "auth login",
+					Message:   fmt.Sprintf("OAuth login requires a working system keyring: %v", keyringErr),
+					Suggestions: []string{
+						"Use token-based authentication instead (recommended for headless/CI environments):",
+						fmt.Sprintf("  dtctl config set-context %s --environment %q --token-ref my-token", contextName, environment),
+						"  dtctl config set-credentials my-token --token <YOUR_PLATFORM_TOKEN>",
+						"Create a platform token at: Identity & Access Management > Access Tokens > Generate new token > Platform token",
+						"For required token scopes, see: dtctl help token-scopes (or docs/TOKEN_SCOPES.md)",
+						"On Linux, ensure a Secret Service provider is running (e.g. gnome-keyring-daemon --start --components=secrets)",
+						"Unset DTCTL_DISABLE_KEYRING if it was set unintentionally",
+					},
+				}
+			}
 		}
 
 		// Warn about potentially wrong environment URLs
