@@ -30,7 +30,7 @@ func TestInit_NoParent(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "")
 	resetOTelGlobals(t)
 
-	ctx, shutdown, err := Init(context.Background(), "dtctl test", 0)
+	ctx, shutdown, err := Init(context.Background(), "dtctl test", []string{"test"}, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestInit_InheritsTraceID(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "")
 	resetOTelGlobals(t)
 
-	ctx, shutdown, err := Init(context.Background(), "dtctl test", 0)
+	ctx, shutdown, err := Init(context.Background(), "dtctl test", []string{"test"}, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestInit_InvalidParent_Graceful(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "")
 	resetOTelGlobals(t)
 
-	ctx, shutdown, err := Init(context.Background(), "dtctl test", 0)
+	ctx, shutdown, err := Init(context.Background(), "dtctl test", []string{"test"}, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestInit_TraceStatePropagated(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "")
 	resetOTelGlobals(t)
 
-	ctx, shutdown, err := Init(context.Background(), "dtctl test", 0)
+	ctx, shutdown, err := Init(context.Background(), "dtctl test", []string{"test"}, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestInit_NoOTLPEndpoint_NoError(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "")
 	resetOTelGlobals(t)
 
-	_, shutdown, err := Init(context.Background(), "dtctl test", 0)
+	_, shutdown, err := Init(context.Background(), "dtctl test", nil, 0)
 	defer shutdown(context.Background())
 	if err != nil {
 		t.Errorf("unexpected error when OTLP endpoint is not set: %v", err)

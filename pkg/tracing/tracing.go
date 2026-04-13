@@ -6,8 +6,11 @@
 // # Span lifecycle
 //
 // Init creates a single root span covering the entire CLI invocation and registers a
-// BatchSpanProcessor backed by an OTLP HTTP exporter (when configured). The caller
-// MUST defer the returned shutdown function so spans are force-flushed before exit.
+// SimpleSpanProcessor (synchronous exporter) backed by an OTLP HTTP exporter (when
+// configured). A synchronous processor is used instead of a batching one because dtctl
+// is a short-lived process that produces only a single span — the OTel documentation
+// recommends SimpleSpanProcessor for this use case. The caller MUST defer the returned
+// shutdown function so the span is ended and the provider is cleanly shut down.
 //
 // # W3C Trace Context propagation
 //
@@ -29,16 +32,19 @@ package tracing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/dynatrace-oss/dtctl/pkg/version"
 )
@@ -51,22 +57,35 @@ const tracerName = "dtctl"
 //   - a non-nil error only when OTEL_EXPORTER_OTLP_ENDPOINT is set but the exporter
 //     cannot be created; the returned context and span are always valid
 //
+// safeArgs are the sanitised command-line arguments (verb + resource only, no flags or
+// IDs) used for the span name and the process.command_args resource attribute.
+//
 // verbosity controls OTel-internal error output: at level 0 SDK-internal errors
 // (e.g. failed span exports) are silently discarded; at level 1+ they are printed
 // to stderr. This avoids noisy output in normal CLI usage when an OTLP endpoint is
 // misconfigured.
-func Init(ctx context.Context, spanName string, verbosity int) (context.Context, func(context.Context), error) {
+func Init(ctx context.Context, spanName string, safeArgs []string, verbosity int) (context.Context, func(context.Context), error) {
 	svcName := os.Getenv("OTEL_SERVICE_NAME")
 	if svcName == "" {
 		svcName = tracerName
+	}
+
+	// Build resource attributes: service identity + process metadata per OTel
+	// semantic conventions (https://opentelemetry.io/docs/specs/semconv/resource/process/).
+	resAttrs := []attribute.KeyValue{
+		semconv.ServiceName(svcName),
+		semconv.ServiceVersion(version.Version),
+		semconv.ProcessCommand("dtctl"),
+	}
+	if len(safeArgs) > 0 {
+		resAttrs = append(resAttrs, semconv.ProcessCommandArgs(safeArgs...))
 	}
 
 	res, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(svcName),
-			semconv.ServiceVersion(version.Version),
+			resAttrs...,
 		),
 	)
 	if err != nil {
@@ -76,8 +95,7 @@ func Init(ctx context.Context, spanName string, verbosity int) (context.Context,
 		// than being silently dropped by falling back to resource.Default().
 		res = resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(svcName),
-			semconv.ServiceVersion(version.Version),
+			resAttrs...,
 		)
 	}
 
@@ -113,9 +131,12 @@ func Init(ctx context.Context, spanName string, verbosity int) (context.Context,
 		if expErr != nil {
 			exportErr = fmt.Errorf("OTLP exporter: %w", expErr)
 		} else {
-			// BatchSpanProcessor is async — low overhead during CLI execution;
-			// ForceFlush in shutdown ensures delivery before process exit.
-			tpOpts = append(tpOpts, sdktrace.WithBatcher(exp))
+			// SimpleSpanProcessor (synchronous) is recommended by OTel for
+			// short-lived processes like CLIs. It exports each span immediately
+			// when End() is called, so spans are never lost if the process is
+			// killed before a deferred flush runs. Since dtctl produces only a
+			// single root span, the synchronous overhead is negligible.
+			tpOpts = append(tpOpts, sdktrace.WithSyncer(exp))
 		}
 	}
 
@@ -126,15 +147,18 @@ func Init(ctx context.Context, spanName string, verbosity int) (context.Context,
 	// The W3C propagator silently ignores invalid values → new root span.
 	parentCtx := prop.Extract(ctx, envCarrier{})
 
-	// Root span covers the entire CLI invocation.
-	spanCtx, span := tp.Tracer(tracerName).Start(parentCtx, spanName)
+	// Root span covers the entire CLI invocation. SpanKindClient is used because
+	// dtctl is a client making outgoing HTTP calls to Dynatrace APIs.
+	spanCtx, span := tp.Tracer(tracerName).Start(parentCtx, spanName,
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
 
 	shutdown := func(ctx context.Context) {
 		span.End()
-		if err := tp.ForceFlush(ctx); err != nil {
+		if err := tp.ForceFlush(ctx); err != nil && !isContextErr(err) {
 			fmt.Fprintf(os.Stderr, "dtctl: otel: flush: %v\n", err)
 		}
-		if err := tp.Shutdown(ctx); err != nil {
+		if err := tp.Shutdown(ctx); err != nil && !isContextErr(err) {
 			fmt.Fprintf(os.Stderr, "dtctl: otel: shutdown: %v\n", err)
 		}
 	}
@@ -158,3 +182,10 @@ func (envCarrier) Get(key string) string {
 
 func (envCarrier) Set(string, string) {}
 func (envCarrier) Keys() []string     { return []string{"traceparent", "tracestate"} }
+
+// isContextErr returns true if err is a context.Canceled or context.DeadlineExceeded
+// error (or wraps one). These are expected during shutdown when the flush timeout
+// expires and should not be surfaced to the user as noisy stderr output.
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}

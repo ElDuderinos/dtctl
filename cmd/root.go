@@ -108,8 +108,9 @@ func execute() int {
 	// spans before the process exits (critical for short-lived processes that
 	// OneAgent cannot instrument).
 	spanName := buildSpanName(spanArgs)
+	safeArgs := extractSafeArgs(spanArgs)
 	tracingCtx, shutdownTracing, tracingErr := tracing.Init(
-		context.Background(), spanName, verbosity,
+		context.Background(), spanName, safeArgs, verbosity,
 	)
 	tracingRootCtx = tracingCtx
 	rootSpan := trace.SpanFromContext(tracingCtx)
@@ -665,6 +666,19 @@ var shortFlagsTakingValues = map[string]bool{
 // and short flags that accept a value (see shortFlagsTakingValues), those
 // value tokens are also skipped.
 func buildSpanName(args []string) string {
+	parts := extractSafeArgs(args)
+	if len(parts) == 0 {
+		return "dtctl"
+	}
+	return "dtctl " + strings.Join(parts, " ")
+}
+
+// extractSafeArgs returns the first two positional tokens (verb + resource)
+// from the supplied command-line arguments, skipping all flags and their
+// values. The result is safe for use in span names and resource attributes
+// because it never contains flag values, resource IDs, or other potentially
+// sensitive data.
+func extractSafeArgs(args []string) []string {
 	var parts []string
 	i := 0
 	for i < len(args) && len(parts) < 2 {
@@ -695,10 +709,7 @@ func buildSpanName(args []string) string {
 			i++
 		}
 	}
-	if len(parts) == 0 {
-		return "dtctl"
-	}
-	return "dtctl " + strings.Join(parts, " ")
+	return parts
 }
 
 // NewDQLExecutorFromConfig creates a DQL executor from a config and client, with OAuth

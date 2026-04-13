@@ -16,6 +16,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/dynatrace-oss/dtctl/pkg/version"
 )
@@ -771,6 +772,12 @@ func TestInjectTraceContext_PropagatesHeaders(t *testing.T) {
 	// Set up OTel with a known TRACEPARENT so we can verify exact header values.
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_SERVICE_NAME", "")
+
+	// Reset global OTel state after the test to avoid leaking into other tests.
+	t.Cleanup(func() {
+		otel.SetTracerProvider(noop.NewTracerProvider())
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator())
+	})
 
 	// Import the tracing package to initialise OTel with a known trace context.
 	traceParent := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
