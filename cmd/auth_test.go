@@ -29,6 +29,22 @@ func setupAuthTestConfig(t *testing.T, contextName, environment, tokenRef string
 	return configPath
 }
 
+// resetAuthLoginFlags resets all auth login command flags to their default values.
+// This is needed because cobra/pflag retains flag values across Execute() calls when
+// the global rootCmd is reused in tests — a flag not present in the args of a new
+// Execute() call keeps the value set by the previous call.
+func resetAuthLoginFlags(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"context", "environment", "token-name", "timeout", "safety-level"} {
+		if f := authLoginCmd.Flags().Lookup(name); f != nil {
+			if err := f.Value.Set(f.DefValue); err != nil {
+				t.Logf("warning: could not reset flag %q: %v", name, err)
+			}
+			f.Changed = false
+		}
+	}
+}
+
 // TestAuthLogin_FlagValidation checks that the login command fails correctly when
 // neither flags nor a current context are available.
 func TestAuthLogin_FlagValidation(t *testing.T) {
@@ -140,6 +156,7 @@ func TestAuthLogin_CurrentContextFallback(t *testing.T) {
 // --environment) causes the missing value to be filled from the current context.
 func TestAuthLogin_PartialFlags_EnvironmentFromContext(t *testing.T) {
 	viper.Reset()
+	resetAuthLoginFlags(t)
 
 	const (
 		ctxName  = "my-context"
@@ -151,11 +168,12 @@ func TestAuthLogin_PartialFlags_EnvironmentFromContext(t *testing.T) {
 	cfgFile = configPath
 	defer func() { cfgFile = "" }()
 
+	// --context is the active context, so environment resolution uses its own URL.
 	rootCmd.SetArgs([]string{"auth", "login", "--context", ctxName})
 	err := rootCmd.Execute()
 
 	if err != nil && strings.Contains(err.Error(), "--context and --environment are required") {
-		t.Errorf("expected environment to be filled from current context, but got: %v", err)
+		t.Errorf("expected environment to be filled from named context, got: %v", err)
 	}
 }
 
@@ -213,6 +231,186 @@ func TestAuthLogin_KeyringRecovery(t *testing.T) {
 	// keyring gate error about requiring a working keyring.
 	if err != nil && strings.Contains(err.Error(), "OAuth login requires a working system keyring") {
 		t.Errorf("expected recovery to succeed and proceed past keyring gate, got: %v", err)
+	}
+}
+
+// TestResolveLoginContext tests the resolveLoginContext helper that determines
+// contextName, environment, and tokenName from an existing config when not all
+// values are supplied as explicit CLI flags.
+func TestResolveLoginContext(t *testing.T) {
+	const (
+		prodURL = "https://irc65933.apps.dynatrace.com/"
+		hardURL = "https://eva38390.sprint.apps.dynatracelabs.com/"
+		prodTok = "prod1sfm-oauth"
+		hardTok = "hardsfm-oauth"
+	)
+
+	makeCfg := func() *config.Config {
+		cfg := config.NewConfig()
+		cfg.SetContext("prod1sfm", prodURL, prodTok)
+		cfg.SetContext("hardsfm", hardURL, hardTok)
+		cfg.CurrentContext = "prod1sfm"
+		return cfg
+	}
+
+	tests := []struct {
+		name        string
+		contextName string
+		environment string
+		tokenName   string
+		currentCtx  string // override CurrentContext ("" means use default "prod1sfm")
+		wantContext string
+		wantEnv     string
+		wantToken   string
+		wantErr     bool
+	}{
+		{
+			name:        "no flags uses current context",
+			wantContext: "prod1sfm",
+			wantEnv:     prodURL,
+			wantToken:   prodTok,
+		},
+		{
+			// Regression: before the fix, this would return prodURL for environment.
+			name:        "explicit context uses named context URL not current context URL",
+			contextName: "hardsfm",
+			wantContext: "hardsfm",
+			wantEnv:     hardURL,
+			wantToken:   hardTok,
+		},
+		{
+			name:        "explicit context and explicit environment uses provided values",
+			contextName: "hardsfm",
+			environment: "https://custom.example.invalid/",
+			wantContext: "hardsfm",
+			wantEnv:     "https://custom.example.invalid/",
+			wantToken:   hardTok, // token still resolved from named context
+		},
+		{
+			name:        "all flags explicit skips lookup entirely",
+			contextName: "hardsfm",
+			environment: "https://custom.example.invalid/",
+			tokenName:   "my-explicit-token",
+			wantContext: "hardsfm",
+			wantEnv:     "https://custom.example.invalid/",
+			wantToken:   "my-explicit-token",
+		},
+		{
+			name:        "explicit context not in config returns empty environment",
+			contextName: "new-context",
+			wantContext: "new-context",
+			wantEnv:     "", // caller must check and error
+			wantToken:   "",
+		},
+		{
+			name:       "no flags no current context returns error",
+			currentCtx: "none", // sentinel: clear CurrentContext
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := makeCfg()
+			if tt.currentCtx == "none" {
+				cfg.CurrentContext = ""
+			}
+
+			gotCtx, gotEnv, gotToken, err := resolveLoginContext(cfg, tt.contextName, tt.environment, tt.tokenName)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotCtx != tt.wantContext {
+				t.Errorf("context = %q, want %q", gotCtx, tt.wantContext)
+			}
+			if gotEnv != tt.wantEnv {
+				t.Errorf("environment = %q, want %q", gotEnv, tt.wantEnv)
+			}
+			if gotToken != tt.wantToken {
+				t.Errorf("tokenName = %q, want %q", gotToken, tt.wantToken)
+			}
+		})
+	}
+}
+
+// TestAuthLogin_ContextOnly_UsesNamedContextURL is the integration-level regression
+// test for the bug where dtctl auth login --context <non-active-context> would
+// silently overwrite the target context's environment URL with the active context's URL.
+//
+// Config: prod1sfm (active, prod URL) + hardsfm (sprint URL)
+// Command: auth login --context hardsfm   (no --environment)
+// Expected: hardsfm's sprint URL is used, command fails at keyring gate (not URL resolution).
+func TestAuthLogin_ContextOnly_UsesNamedContextURL(t *testing.T) {
+	viper.Reset()
+	resetAuthLoginFlags(t)
+	t.Setenv("DTCTL_DISABLE_KEYRING", "1")
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	cfg := config.NewConfig()
+	cfg.SetContext("prod1sfm", "https://irc65933.apps.dynatrace.com/", "prod1sfm-oauth")
+	cfg.SetContext("hardsfm", "https://eva38390.sprint.apps.dynatracelabs.com/", "hardsfm-oauth")
+	cfg.CurrentContext = "prod1sfm"
+
+	if err := cfg.SaveTo(configPath); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	cfgFile = configPath
+	defer func() { cfgFile = "" }()
+
+	rootCmd.SetArgs([]string{"auth", "login", "--context", "hardsfm"})
+	err := rootCmd.Execute()
+
+	// The command must NOT fail with a context/environment validation error —
+	// that would indicate hardsfm's URL was not resolved from config.
+	if err != nil && strings.Contains(err.Error(), "--context and --environment are required") {
+		t.Errorf("expected hardsfm's URL to be resolved from config, got: %v", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "not found in config") {
+		t.Errorf("expected hardsfm to be found in config, got: %v", err)
+	}
+	// The command should fail at the keyring gate (disabled in tests), not earlier.
+	if err != nil && !strings.Contains(err.Error(), "keyring") {
+		t.Errorf("expected keyring error after successful URL resolution, got: %v", err)
+	}
+}
+
+// TestAuthLogin_NewContext_RequiresEnvironment verifies that when --context names
+// a context that does not exist in config yet, --environment must be supplied.
+func TestAuthLogin_NewContext_RequiresEnvironment(t *testing.T) {
+	viper.Reset()
+	resetAuthLoginFlags(t)
+	t.Setenv("DTCTL_DISABLE_KEYRING", "1")
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	cfg := config.NewConfig()
+	cfg.SetContext("existing", "https://abc12345.apps.dynatrace.com/", "existing-oauth")
+	cfg.CurrentContext = "existing"
+
+	if err := cfg.SaveTo(configPath); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+	cfgFile = configPath
+	defer func() { cfgFile = "" }()
+
+	rootCmd.SetArgs([]string{"auth", "login", "--context", "brand-new-context"})
+	err := rootCmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected error for new context without --environment, got nil")
+	}
+	if !strings.Contains(err.Error(), "--environment is required") {
+		t.Errorf("expected --environment required error, got: %v", err)
 	}
 }
 

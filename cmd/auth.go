@@ -134,6 +134,41 @@ JWT token's 'sub' claim.`,
 	},
 }
 
+// resolveLoginContext fills in any missing contextName, environment, and tokenName
+// values by looking up the named context in cfg.
+//
+// The key invariant: when contextName is already known (provided via --context),
+// the environment and tokenName fallbacks are read from THAT named context — not
+// from the currently active context. This prevents a bug where
+//
+//	dtctl auth login --context <other-context>
+//
+// would silently overwrite the other context's environment URL with the current
+// context's URL.
+//
+// Returns an error only when contextName cannot be determined (no --context flag
+// and no current context is set in cfg).
+func resolveLoginContext(cfg *config.Config, contextName, environment, tokenName string) (string, string, string, error) {
+	if contextName == "" {
+		if cfg.CurrentContext == "" {
+			return "", "", "", fmt.Errorf("no current context set")
+		}
+		contextName = cfg.CurrentContext
+	}
+	// Resolve missing environment / tokenName from the *named* context.
+	if environment == "" || tokenName == "" {
+		if nc, err := cfg.GetContext(contextName); err == nil {
+			if environment == "" {
+				environment = nc.Context.Environment
+			}
+			if tokenName == "" && nc.Context.TokenRef != "" {
+				tokenName = nc.Context.TokenRef
+			}
+		}
+	}
+	return contextName, environment, tokenName, nil
+}
+
 // authLoginCmd initiates browser-based OAuth login
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
@@ -172,43 +207,39 @@ you'll need to use API token authentication instead (dtctl config set-credential
 		timeoutStr, _ := cmd.Flags().GetString("timeout")
 		safetyLevelStr, _ := cmd.Flags().GetString("safety-level")
 
-		// If --context or --environment are not provided, fall back to the current context
+		// Resolve contextName, environment and tokenName from the config when not
+		// supplied as explicit flags.
 		if contextName == "" || environment == "" {
 			contextHint := "Use 'dtctl ctx' to list available context names, then pass --context <name> --environment <url>"
 			cfg, err := LoadConfig()
 			if err != nil {
-				return &diagnostic.Error{
-					Operation:   "auth login",
-					Message:     "--context and --environment are required (no existing config found)",
-					Suggestions: []string{contextHint},
-					Err:         err,
+				if contextName == "" {
+					return &diagnostic.Error{
+						Operation:   "auth login",
+						Message:     "--context and --environment are required (no existing config found)",
+						Suggestions: []string{contextHint},
+						Err:         err,
+					}
+				}
+				// contextName provided but config unreadable — environment must be supplied explicitly.
+			} else {
+				var resolveErr error
+				contextName, environment, tokenName, resolveErr = resolveLoginContext(cfg, contextName, environment, tokenName)
+				if resolveErr != nil {
+					return &diagnostic.Error{
+						Operation:   "auth login",
+						Message:     "--context and --environment are required when no current context is set",
+						Suggestions: []string{contextHint, "Set a current context with 'dtctl ctx use-context <name>'"},
+					}
 				}
 			}
-			if cfg.CurrentContext == "" {
-				return &diagnostic.Error{
-					Operation:   "auth login",
-					Message:     "--context and --environment are required when no current context is set",
-					Suggestions: []string{contextHint, "Set a current context with 'dtctl ctx use-context <name>'"},
-				}
-			}
-			ctx, err := cfg.CurrentContextObj()
-			if err != nil {
-				return &diagnostic.Error{
-					Operation:   "auth login",
-					Message:     "--context and --environment are required (failed to load current context)",
-					Suggestions: []string{contextHint},
-					Err:         err,
-				}
-			}
-			if contextName == "" {
-				contextName = cfg.CurrentContext
-			}
+			// If environment is still empty, the named context is new — --environment must be provided.
 			if environment == "" {
-				environment = ctx.Environment
-			}
-			// Preserve the existing token name so the stored token is updated in-place
-			if tokenName == "" && ctx.TokenRef != "" {
-				tokenName = ctx.TokenRef
+				return &diagnostic.Error{
+					Operation:   "auth login",
+					Message:     fmt.Sprintf("--environment is required: context %q not found in config", contextName),
+					Suggestions: []string{contextHint},
+				}
 			}
 		}
 

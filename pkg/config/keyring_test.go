@@ -81,15 +81,20 @@ func TestEnsureKeyringCollection_Smoke(t *testing.T) {
 	t.Logf("EnsureKeyringCollection() error (expected in CI): %v", err)
 
 	if runtime.GOOS == "linux" {
-		// On Linux without D-Bus we expect a connection error.
-		if !strings.Contains(err.Error(), "cannot connect to Secret Service") {
-			t.Errorf("expected 'cannot connect to Secret Service' error, got: %v", err)
+		// On Linux the Secret Service may be unavailable in two ways:
+		//   1. D-Bus session is unreachable → "cannot connect to Secret Service"
+		//   2. D-Bus is reachable but org.freedesktop.secrets is not registered
+		//      (common in headless CI) → error contains "org.freedesktop.secrets"
+		//      or "failed to create keyring collection"
+		secretServiceErr := strings.Contains(err.Error(), "cannot connect to Secret Service") ||
+			strings.Contains(err.Error(), "org.freedesktop.secrets") ||
+			strings.Contains(err.Error(), "failed to create keyring collection")
+		if !secretServiceErr {
+			t.Errorf("expected Secret Service unavailability error, got: %v", err)
 		}
-	} else {
+	} else if !strings.Contains(err.Error(), "only supported on Linux") {
 		// On non-Linux platforms the stub should report the OS.
-		if !strings.Contains(err.Error(), "only supported on Linux") {
-			t.Errorf("expected 'only supported on Linux' error, got: %v", err)
-		}
+		t.Errorf("expected 'only supported on Linux' error, got: %v", err)
 	}
 }
 
