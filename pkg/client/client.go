@@ -16,6 +16,9 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+
 	"github.com/dynatrace-oss/dtctl/pkg/aidetect"
 	"github.com/dynatrace-oss/dtctl/pkg/config"
 	"github.com/dynatrace-oss/dtctl/pkg/version"
@@ -237,6 +240,17 @@ func (c *Client) SetLogger(logger *logrus.Logger) {
 // Logger returns the client logger
 func (c *Client) Logger() *logrus.Logger {
 	return c.logger
+}
+
+// InjectTraceContext configures the client to inject W3C trace context headers
+// (traceparent / tracestate) on every outgoing HTTP request using the global
+// OpenTelemetry text map propagator. ctx must carry the active span — typically
+// the root context returned by tracing.Init.
+func (c *Client) InjectTraceContext(ctx context.Context) {
+	c.http.OnBeforeRequest(func(_ *resty.Client, req *resty.Request) error {
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+		return nil
+	})
 }
 
 // BaseURL returns the base URL of the Dynatrace environment

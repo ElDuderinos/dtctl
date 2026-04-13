@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -19,6 +21,7 @@ import (
 	"github.com/dynatrace-oss/dtctl/pkg/output"
 	"github.com/dynatrace-oss/dtctl/pkg/safety"
 	"github.com/dynatrace-oss/dtctl/pkg/suggest"
+	"github.com/dynatrace-oss/dtctl/pkg/tracing"
 )
 
 var (
@@ -32,6 +35,10 @@ var (
 	chunkSize    int64
 	agentMode    bool // --agent/-A flag: wrap output in machine-readable envelope
 	noAgent      bool // --no-agent flag: opt out of auto-detected agent mode
+
+	// tracingRootCtx holds the context carrying the root OTel span for this
+	// invocation. Set by Execute() and consumed by NewClientFromConfig.
+	tracingRootCtx context.Context
 )
 
 // rootCmd represents the base command
@@ -50,6 +57,23 @@ SLOs, queries, and other Dynatrace platform capabilities.`,
 func Execute() {
 	// Setup enhanced error handling after all subcommands are registered
 	setupErrorHandlers(rootCmd)
+
+	// Initialise OpenTelemetry tracing. The root span covers the entire
+	// invocation; shutdown flushes buffered spans before the process exits
+	// (critical for short-lived processes that OneAgent cannot instrument).
+	tracingCtx, shutdownTracing, tracingErr := tracing.Init(
+		context.Background(), buildSpanName(),
+	)
+	tracingRootCtx = tracingCtx
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		shutdownTracing(flushCtx)
+	}()
+	if tracingErr != nil {
+		// Non-fatal: warn and continue. The CLI still works; spans may not export.
+		fmt.Fprintf(os.Stderr, "dtctl: tracing: %v\n", tracingErr)
+	}
 
 	// --- Alias resolution (before Cobra parses args) ---
 	// Load config quietly; if it fails, skip alias resolution (the real
@@ -568,7 +592,32 @@ func NewClientFromConfig(cfg *config.Config) (*client.Client, error) {
 	} else {
 		c.SetVerbosity(verbosity)
 	}
+	// Propagate W3C trace context on every Dynatrace API request.
+	if tracingRootCtx != nil {
+		c.InjectTraceContext(tracingRootCtx)
+	}
 	return c, nil
+}
+
+// buildSpanName derives a safe OTel span name from the command-line arguments.
+// Only the verb and resource (first two positional tokens) are included; further
+// positional arguments (e.g. resource IDs or names) and all flag names/values are
+// excluded to avoid leaking sensitive data into trace span names.
+func buildSpanName() string {
+	var parts []string
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "-") {
+			break
+		}
+		parts = append(parts, arg)
+		if len(parts) == 2 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return "dtctl"
+	}
+	return "dtctl " + strings.Join(parts, " ")
 }
 
 // NewDQLExecutorFromConfig creates a DQL executor from a config and client, with OAuth

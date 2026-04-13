@@ -37,6 +37,7 @@ Thumbs.db
 # Config files (might contain tokens)
 config.yaml
 .dtctl/
+.env
 
 # Build artifacts
 *.log
