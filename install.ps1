@@ -44,7 +44,7 @@ if (-not $asset) {
 $downloadUrl = $asset.browser_download_url
 
 # Resolve long paths to avoid 8.3 short-name issues (e.g. C:\Users\LONGUS~1\...)
-# [IO.Path]::GetFullPath resolves the path but keeps 8.3 names; GetLongPath expands them.
+# Uses (Get-Item $Path).FullName to obtain the canonical long path from the filesystem.
 function Resolve-LongPath {
     param([string]$Path)
     try {
@@ -104,8 +104,11 @@ if (-not (Test-Path $exePath)) {
 }
 
 # Add to PATH if not already present
+# Resolve existing PATH entries to long paths before comparing, so an 8.3 short-path
+# entry already in PATH doesn't cause the long-path version to be added as a duplicate.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($userPath -notlike "*$installDir*") {
+$resolvedUserPath = ($userPath -split ';' | ForEach-Object { Resolve-LongPath $_ }) -join ';'
+if ($resolvedUserPath -notlike "*$installDir*") {
     [Environment]::SetEnvironmentVariable('Path', "$userPath;$installDir", 'User')
     $env:Path = "$env:Path;$installDir"
     Write-Host "Added $installDir to user PATH." -ForegroundColor Green

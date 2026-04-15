@@ -47,7 +47,7 @@ To update, re-run the same command.
 irm https://raw.githubusercontent.com/dynatrace-oss/dtctl/main/install.ps1 | iex
 ```
 
-This downloads the latest release, extracts it to `%LOCALAPPDATA%\dtctl`, and adds it to your PATH. Restart your PS terminal (or all instances of the current IDE, e.g. all Pycharm IDE) afterwards.
+This downloads the latest release, extracts it to `%LOCALAPPDATA%\dtctl`, and adds it to your PATH. Restart your terminal (or IDE) afterwards for the PATH change to take effect.
 
 For detailed steps, manual install, PowerShell tips, quoting, and troubleshooting, see the dedicated [Windows installation guide](WINDOWS.md).
 
